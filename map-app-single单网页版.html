@@ -1,0 +1,1394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GeoJSON 地图编辑器 (单文件版)</title>
+    <!-- FontAwesome 6 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+        crossorigin="anonymous" />
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <!-- Leaflet.draw CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"
+        crossorigin="" />
+    <!-- Custom Styles -->
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #map {
+            flex-grow: 1;
+            height: 100%;
+            z-index: 1;
+        }
+
+        .panel {
+            width: 300px;
+            background: #1e1e1e;
+            padding: 15px;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        #controls {
+            border-right: 1px solid #333;
+        }
+
+        #layerPanel {
+            border-left: 1px solid #333;
+            display: none;
+            /* Hidden by default, toggled by button */
+        }
+
+        /* Editor Panel Overlay */
+        #editorPanel {
+            position: absolute;
+            bottom: 20px;
+            left: 340px;
+            right: 20px;
+            height: 400px;
+            background: rgba(30, 30, 30, 0.98);
+            backdrop-filter: blur(10px);
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+            z-index: 1001;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #geojsonEditor {
+            width: 100%;
+            height: 300px;
+            background: #121212;
+            color: #f0f0f0;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 10px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.9rem;
+            resize: none;
+            margin-bottom: 15px;
+            flex-grow: 1;
+            line-height: 1.5;
+        }
+
+        .panel h2 {
+            margin-top: 0;
+            font-size: 1.1rem;
+            color: #fff;
+            text-align: center;
+            margin-bottom: 15px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .control-group label {
+            font-size: 0.85rem;
+            margin-bottom: 6px;
+            color: #aaa;
+        }
+
+        .control-group select,
+        .control-group input[type="file"],
+        .control-group input[type="number"],
+        .control-group input[type="text"],
+        .control-group button {
+            padding: 8px 10px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            outline: none;
+        }
+
+        .control-group select,
+        .control-group input[type="number"],
+        .control-group input[type="text"] {
+            background: #2c2c2c;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            transition: border-color 0.2s;
+        }
+
+        .control-group select:focus,
+        .control-group input:focus {
+            border-color: #4a90e2;
+        }
+
+        .control-group button {
+            background: #4a90e2;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+
+        .control-group button:hover {
+            background: #357ab8;
+            transform: translateY(-1px);
+        }
+
+        .control-group button:active {
+            transform: translateY(0);
+        }
+
+        .control-group input[type="checkbox"] {
+            margin-right: 8px;
+            cursor: pointer;
+        }
+
+        /* Layer list items */
+        #layerList {
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
+        }
+
+        .layer-item {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            border-left: 3px solid #4a90e2;
+            font-size: 0.85rem;
+            transition: background 0.2s;
+        }
+
+        .layer-item:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .layer-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .layer-name {
+            font-weight: 600;
+            color: #f0f0f0;
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-right: 8px;
+        }
+
+        .layer-type {
+            font-size: 0.75rem;
+            color: #888;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .layer-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        .layer-btn {
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            border-radius: 4px;
+            color: #ccc;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .layer-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+
+        .layer-btn.delete {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+        }
+
+        .layer-btn.delete:hover {
+            background: #e74c3c;
+            color: #fff;
+        }
+
+        /* Leaflet map container adjustments */
+        .leaflet-container {
+            background: #0e0e0e;
+        }
+
+        /* Divider */
+        .divider {
+            border: 0;
+            height: 1px;
+            background: linear-gradient(to right, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0));
+            margin: 20px 0;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        /* Layer labels */
+        .layer-label {
+            background: rgba(0, 0, 0, 0.8) !important;
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
+            border-radius: 4px !important;
+            color: #fff !important;
+            font-size: 0.85rem !important;
+            padding: 4px 8px !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) !important;
+            font-family: 'Segoe UI', sans-serif !important;
+        }
+
+        .layer-label::before {
+            border-top-color: rgba(0, 0, 0, 0.8) !important;
+        }
+
+        /* Context Menu */
+        .context-menu {
+            position: absolute;
+            background: rgba(35, 35, 35, 0.98);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            padding: 6px 0;
+            min-width: 160px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+            z-index: 10000;
+        }
+
+        .context-menu-item {
+            padding: 10px 16px;
+            cursor: pointer;
+            color: #e0e0e0;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+        }
+
+        .context-menu-item:hover {
+            background: rgba(74, 144, 226, 0.2);
+            color: #fff;
+        }
+
+        /* Leaflet Draw Toolbar Icon Styling - Normal Colors */
+        .leaflet-draw-toolbar a,
+        .leaflet-draw-actions a {
+            background-color: #f4f4f4 !important;
+            border: 1px solid #aaa !important;
+        }
+
+        .leaflet-draw-toolbar a:hover,
+        .leaflet-draw-actions a:hover {
+            background-color: #fff !important;
+        }
+
+        /* Use default icon colors (no filter) */
+        .leaflet-draw-draw-polyline,
+        .leaflet-draw-draw-polygon,
+        .leaflet-draw-draw-rectangle,
+        .leaflet-draw-draw-circle,
+        .leaflet-draw-draw-marker,
+        .leaflet-draw-draw-circlemarker,
+        .leaflet-draw-edit-edit,
+        .leaflet-draw-edit-remove {
+            /* Default dark icons on light background */
+        }
+
+        /* Disabled state */
+        .leaflet-draw-toolbar .leaflet-disabled {
+            background-color: rgba(200, 200, 200, 0.5) !important;
+            border-color: rgba(100, 100, 100, 0.3) !important;
+        }
+
+        .leaflet-draw-toolbar .leaflet-disabled>* {
+            opacity: 0.5 !important;
+        }
+
+        /* Custom Marker Icon Container */
+        .custom-marker-icon {
+            background: transparent !important;
+            border: none !important;
+        }
+
+        .custom-marker-wrapper {
+            position: relative;
+            width: 30px;
+            height: 42px;
+        }
+
+        .custom-marker-circle {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
+            border: 2px solid rgba(255, 255, 255, 0.9);
+            position: relative;
+            z-index: 2;
+            transition: transform 0.2s;
+        }
+
+        .custom-marker-circle:hover {
+            transform: scale(1.1);
+        }
+
+        .custom-marker-circle i {
+            color: white;
+            font-size: 14px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .custom-marker-tip {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-top: 10px solid;
+            z-index: 1;
+            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3));
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 左侧控制面板 -->
+    <div id="controls" class="panel">
+        <h2>地图控制</h2>
+
+        <!-- 基础功能 -->
+        <div class="control-group">
+            <label for="baseMapSelect">底图选择：</label>
+            <select id="baseMapSelect">
+                <option value="osm">OpenStreetMap</option>
+                <option value="stamen">Stamen Toner</option>
+                <option value="carto">CartoDB Positron</option>
+            </select>
+        </div>
+
+        <hr class="divider">
+
+        <!-- GeoJSON 功能 -->
+        <div class="control-group">
+            <button id="exportGeoJSONBtn">导出 GeoJSON</button>
+        </div>
+        <div class="control-group">
+            <label for="geojsonFile">导入 GeoJSON：</label>
+            <input type="file" id="geojsonFile" accept=".json,.geojson" />
+        </div>
+        <div class="control-group">
+            <button id="toggleEditorBtn">显示代码编辑器</button>
+        </div>
+
+        <hr class="divider">
+
+        <!-- 图层面板控制 -->
+        <div class="control-group">
+            <button id="toggleLayerPanelBtn">显示图层面板</button>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Excel/CSV 数据导入导出 -->
+        <div class="control-group">
+            <label>下载导入模板：</label>
+            <button id="downloadTemplateBtn">下载 Excel 模板</button>
+        </div>
+        <div class="control-group">
+            <label for="excelFile">导入 Excel：</label>
+            <input type="file" id="excelFile" accept=".xlsx,.xls" />
+        </div>
+        <div class="control-group">
+            <button id="exportExcelBtn">导出 Excel（完整字段）</button>
+        </div>
+        <div class="control-group">
+            <label for="coordFile">导入 CSV：</label>
+            <input type="file" id="coordFile" accept=".csv,.txt" />
+        </div>
+        <div class="control-group">
+            <button id="exportBtn">导出 CSV（仅坐标）</button>
+        </div>
+
+        <hr class="divider">
+
+        <!-- 工具功能 -->
+        <div class="control-group">
+            <button id="togglePickerBtn">启用坐标拾取</button>
+            <div id="pickedCoords" style="font-size:0.8rem; color:#aaa; margin-top:4px;"></div>
+        </div>
+        <div class="control-group">
+            <label>手动添加标注：</label>
+            <input type="text" id="manualNote" placeholder="输入备注信息" />
+            <button id="addManualMarkerBtn">点击地图添加</button>
+        </div>
+        <div class="control-group">
+            <label for="searchAddress">搜索地址：</label>
+            <input type="text" id="searchAddress" placeholder="输入地址搜索" />
+            <button id="searchBtn">搜索</button>
+        </div>
+        <div class="control-group">
+            <label>输入坐标定位：</label>
+            <input type="number" id="gotoLat" placeholder="纬度" step="0.000001" style="width:100%; margin-bottom:4px;" />
+            <input type="number" id="gotoLng" placeholder="经度" step="0.000001" style="width:100%; margin-bottom:4px;" />
+            <button id="gotoCoordBtn">跳转到中心</button>
+        </div>
+
+        <hr class="divider">
+
+        <!-- 显示选项 -->
+        <div class="control-group">
+            <label for="markerIconSelect">标记图标样式：</label>
+            <select id="markerIconSelect">
+                <option value="blue">蓝色标记</option>
+                <option value="red">红色标记</option>
+                <option value="green">绿色标记</option>
+                <option value="orange">橙色标记</option>
+                <option value="yellow">黄色标记</option>
+                <option value="violet">紫色标记</option>
+                <option value="grey">灰色标记</option>
+                <option value="black">黑色标记</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>
+                <input type="checkbox" id="showLabelsCheck" />
+                显示标注名称
+            </label>
+        </div>
+    </div>
+
+    <!-- 右侧图层面板 -->
+    <div id="layerPanel" class="panel">
+        <h2>图层列表</h2>
+        <div id="layerList"></div>
+        <button id="clearAllBtn" style="margin-top:10px; width:100%; background:#e74c3c;">清空所有图层</button>
+    </div>
+
+    <!--地图容器 -->
+    <div id="map"></div>
+
+    <!-- 右键菜单 -->
+    <div id="contextMenu" class="context-menu" style="display:none;">
+        <div class="context-menu-item" onclick="editMarkerProperties()">编辑属性</div>
+        <div class="context-menu-item" onclick="changeMarkerIcon()">更改图标</div>
+        <div class="context-menu-item" onclick="deleteSelectedMarker()">删除标记</div>
+    </div>
+
+    <!-- GeoJSON 代码编辑器（默认隐藏） -->
+    <div id="editorPanel" style="display:none;">
+        <h2>GeoJSON 编辑器</h2>
+
+        <!-- Save/Load Slots -->
+        <div style="display:flex; gap:10px; margin-bottom:10px;">
+            <select id="saveSlotSelect" style="flex:1;">
+                <option value="slot1">存档 1</option>
+                <option value="slot2">存档 2</option>
+                <option value="slot3">存档 3</option>
+                <option value="slot4">存档 4</option>
+                <option value="slot5">存档 5</option>
+            </select>
+            <button id="saveSlotBtn" style="width:auto;">保存</button>
+            <button id="loadSlotBtn" style="width:auto;">读取</button>
+        </div>
+
+        <textarea id="geojsonEditor" spellcheck="false"></textarea>
+
+        <div style="display:flex; gap:10px;">
+            <button id="applyEditorBtn" style="flex:1;">应用到地图</button>
+            <button
+                onclick="document.getElementById('editorPanel').style.display='none'; document.getElementById('toggleEditorBtn').textContent='显示代码编辑器'"
+                style="flex:1; background:#e74c3c;">关闭</button>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <!-- Leaflet.draw JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js" crossorigin=""></script>
+    <!-- PapaParse for CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"
+        crossorigin="anonymous"></script>
+    <!-- SheetJS for Excel support -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script>
+        // script.js - GeoJSON Map Editor with FontAwesome marker icons
+
+        // ==== Configuration ==== //
+        const AMAP_API_KEY = 'f9ef1f8a897389df48a43e18ac4660d8';
+        const AMAP_GEOCODE_URL = 'https://restapi.amap.com/v3/geocode/geo';
+
+        // ==== Initialize Map ==== //
+        const map = L.map('map').setView([36.0671, 120.3826], 12); // 青岛市中心
+
+        // Base layers
+        const baseLayers = {
+            osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors',
+                maxZoom: 19,
+            }),
+            stamen: L.tileLayer('https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}.png', {
+                attribution: '&copy; Stamen Design',
+                maxZoom: 20,
+            }),
+            carto: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; CartoDB',
+                maxZoom: 19,
+            }),
+        };
+        baseLayers.osm.addTo(map);
+
+        // ==== FontAwesome Icon Marker System ==== //
+        // Map marker-symbol values to FontAwesome icon classes
+        const iconClassMap = {
+            'car': 'fa-solid fa-car',
+            'vehicle': 'fa-solid fa-car',
+            'shop': 'fa-solid fa-bag-shopping',
+            'store': 'fa-solid fa-bag-shopping',
+            'fuel': 'fa-solid fa-gas-pump',
+            'gas_station': 'fa-solid fa-gas-pump',
+            'warehouse': 'fa-solid fa-warehouse',
+            'building': 'fa-solid fa-warehouse',
+            'default': 'fa-solid fa-location-dot'
+        };
+
+        // Create custom marker icon with FontAwesome
+        function createCustomMarkerIcon(color, symbol) {
+            // Default to blue if color not provided or invalid
+            if (!color || color.indexOf('#') !== 0) {
+                color = '#4a90e2'; // default blue
+            }
+
+            // Get FontAwesome icon class
+            const iconClass = iconClassMap[symbol] || iconClassMap['default'];
+
+            // Create HTML with circular background and FontAwesome icon
+            const html = `
+                <div class="custom-marker-wrapper">
+                    <div class="custom-marker-circle" style="background-color: ${color};">
+                        <i class="${iconClass}"></i>
+                    </div>
+                    <div class="custom-marker-tip" style="border-top-color: ${color};"></div>
+                </div>
+            `;
+
+            return L.divIcon({
+                html: html,
+                className: 'custom-marker-icon',
+                iconSize: [30, 42],
+                iconAnchor: [15, 42],
+                popupAnchor: [0, -42]
+            });
+        }
+
+        // Determine icon based on feature properties
+        function getMarkerIcon(properties) {
+            let color = '#4a90e2'; // default blue
+            let symbol = 'default';
+
+            if (properties) {
+                // Read marker-color (hex color like #00AA00)
+                if (properties['marker-color']) {
+                    color = properties['marker-color'];
+                    // If it's a named color, convert to hex
+                    if (color.indexOf('#') !== 0) {
+                        const colorMap = {
+                            'blue': '#4a90e2',
+                            'red': '#e74c3c',
+                            'green': '#2ecc71',
+                            'orange': '#f39c12',
+                            'yellow': '#f1c40f',
+                            'violet': '#9b59b6',
+                            'purple': '#800080',
+                            'grey': '#95a5a6',
+                            'black': '#2c3e50'
+                        };
+                        color = colorMap[color.toLowerCase()] || '#4a90e2';
+                    }
+                }
+
+                // Read marker-symbol or type
+                if (properties['marker-symbol']) {
+                    symbol = properties['marker-symbol'];
+                } else if (properties.type) {
+                    const type = properties.type.toLowerCase();
+                    const symbolMap = {
+                        'shop': 'shop',
+                        'store': 'shop',
+                        '商店': 'shop',
+                        '快准服务站': 'shop',
+                        'warehouse': 'warehouse',
+                        'building': 'warehouse',
+                        '仓库': 'warehouse',
+                        '新康众服务站': 'warehouse',
+                        'fuel': 'fuel',
+                        'gas_station': 'fuel',
+                        '加油站': 'fuel',
+                        '汽服门店': 'fuel',
+                        'car': 'car',
+                        'vehicle': 'car',
+                        '汽车': 'car',
+                        '优配服务站': 'car'
+                    };
+
+                    if (symbolMap[type]) {
+                        symbol = symbolMap[type];
+                    } else {
+                        // Substring match
+                        for (const key in symbolMap) {
+                            if (type.includes(key)) {
+                                symbol = symbolMap[key];
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return createCustomMarkerIcon(color, symbol);
+        }
+
+        // ==== Leaflet.draw Setup ==== //
+        const drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+
+        L.drawLocal = {
+            draw: {
+                toolbar: {
+                    actions: { title: '取消绘制', text: '取消' },
+                    finish: { title: '完成绘制', text: '完成' },
+                    undo: { title: '删除最后一个点', text: '删除最后一个点' },
+                    buttons: {
+                        polyline: '绘制折线',
+                        polygon: '绘制多边形',
+                        rectangle: '绘制矩形',
+                        circle: '绘制圆形',
+                        marker: '添加标记',
+                        circlemarker: '添加圆形标记'
+                    }
+                },
+                handlers: {
+                    circle: { tooltip: { start: '点击并拖动绘制圆形' }, radius: '半径' },
+                    circlemarker: { tooltip: { start: '点击地图放置圆形标记' } },
+                    marker: { tooltip: { start: '点击地图放置标记' } },
+                    polygon: { tooltip: { start: '点击开始绘制多边形', cont: '点击继续绘制多边形', end: '点击第一个点完成多边形' } },
+                    polyline: { error: '<strong>错误:</strong> 线段不能交叉!', tooltip: { start: '点击开始绘制折线', cont: '点击继续绘制折线', end: '点击最后一个点完成折线' } },
+                    rectangle: { tooltip: { start: '点击并拖动绘制矩形' } },
+                    simpleshape: { tooltip: { end: '释放鼠标完成绘制' } }
+                }
+            },
+            edit: {
+                toolbar: {
+                    actions: { save: { title: '保存更改', text: '保存' }, cancel: { title: '取消编辑，放弃所有更改', text: '取消' }, clearAll: { title: '清除所有图层', text: '全部清除' } },
+                    buttons: { edit: '编辑图层', editDisabled: '没有可编辑的图层', remove: '删除图层', removeDisabled: '没有可删除的图层' }
+                },
+                handlers: { edit: { tooltip: { text: '拖动控制点或标记来编辑要素', subtext: '点击取消撤销更改' } }, remove: { tooltip: { text: '点击要删除的要素' } } }
+            }
+        };
+
+        const drawControl = new L.Control.Draw({
+            position: 'topleft',
+            draw: {
+                polyline: { shapeOptions: { color: '#00ff00', weight: 3 } },
+                polygon: { allowIntersection: false, shapeOptions: { color: '#ff7800', fillOpacity: 0.3 } },
+                rectangle: { shapeOptions: { color: '#ff7800', fillOpacity: 0.3 } },
+                circle: { shapeOptions: { color: '#ff7800', fillOpacity: 0.2 } },
+                marker: true,
+                circlemarker: false
+            },
+            edit: { featureGroup: drawnItems, remove: true }
+        });
+        map.addControl(drawControl);
+
+        // ==== UI Elements ==== //
+        const baseMapSelect = document.getElementById('baseMapSelect');
+        const exportGeoJSONBtn = document.getElementById('exportGeoJSONBtn');
+        const geojsonFileInput = document.getElementById('geojsonFile');
+        const toggleEditorBtn = document.getElementById('toggleEditorBtn');
+        const editorPanel = document.getElementById('editorPanel');
+        const geojsonEditor = document.getElementById('geojsonEditor');
+        const applyEditorBtn = document.getElementById('applyEditorBtn');
+        const layerList = document.getElementById('layerList');
+        const clearAllBtn = document.getElementById('clearAllBtn');
+        const showLabelsCheck = document.getElementById('showLabelsCheck');
+        const markerIconSelect = document.getElementById('markerIconSelect');
+
+        // Save slot controls
+        const saveSlotSelect = document.getElementById('saveSlotSelect');
+        const saveSlotBtn = document.getElementById('saveSlotBtn');
+        const loadSlotBtn = document.getElementById('loadSlotBtn');
+
+        // Legacy UI elements
+        const addressFileInput = document.getElementById('addressFile');
+        const exportBtn = document.getElementById('exportBtn');
+        const coordFileInput = document.getElementById('coordFile');
+        const togglePickerBtn = document.getElementById('togglePickerBtn');
+        const pickedCoordsDiv = document.getElementById('pickedCoords');
+        const manualNoteInput = document.getElementById('manualNote');
+        const addManualMarkerBtn = document.getElementById('addManualMarkerBtn');
+        const searchAddressInput = document.getElementById('searchAddress');
+        const searchBtn = document.getElementById('searchBtn');
+        const gotoLatInput = document.getElementById('gotoLat');
+        const gotoLngInput = document.getElementById('gotoLng');
+        const gotoCoordBtn = document.getElementById('gotoCoordBtn');
+        const toggleLayerPanelBtn = document.getElementById('toggleLayerPanelBtn');
+
+        // Excel UI elements
+        const downloadTemplateBtn = document.getElementById('downloadTemplateBtn');
+        const excelFileInput = document.getElementById('excelFile');
+        const exportExcelBtn = document.getElementById('exportExcelBtn');
+
+        // ==== State Variables ==== //
+        let pickerMode = false;
+        let manualMarkerMode = false;
+        let layerCounter = 0;
+        let showLabels = false;
+        let currentMarkerColor = 'blue';
+        let contextMenuTarget = null;
+
+        // ==== Save Slot Management ==== //
+        function updateSlotOptions() {
+            const slots = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5'];
+            slots.forEach((slotId, index) => {
+                const meta = localStorage.getItem(`geojson_${slotId}_meta`);
+                const option = saveSlotSelect.options[index];
+
+                if (meta) {
+                    try {
+                        const { timestamp } = JSON.parse(meta);
+                        const date = new Date(timestamp);
+                        const dateStr = `${date.getMonth() + 1} -${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')} `;
+                        option.text = `存档 ${index + 1} (${dateStr})`;
+                    } catch (e) {
+                        option.text = `存档 ${index + 1} (已保存)`;
+                    }
+                } else {
+                    option.text = `存档 ${index + 1} (空)`;
+                }
+            });
+        }
+
+        // Initialize slot options on page load
+        updateSlotOptions();
+
+        // ==== Helper Functions ==== //
+        function updateLayerList() {
+            layerList.innerHTML = '';
+            let index = 0;
+            drawnItems.eachLayer(layer => {
+                const item = document.createElement('div');
+                item.className = 'layer-item';
+                const type = layer instanceof L.Marker ? '标记' :
+                    layer instanceof L.Circle ? '圆形' :
+                        layer instanceof L.Rectangle ? '矩形' :
+                            layer instanceof L.Polygon ? '多边形' :
+                                layer instanceof L.Polyline ? '折线' : '图层';
+                const name = layer.options.name || `${type} ${index + 1} `;
+                item.innerHTML = `
+                <div class="layer-item-header">
+                        <span class="layer-name">${name}</span>
+                        <span class="layer-type">${type}</span>
+                    </div>
+                <div class="layer-actions">
+                    <button class="layer-btn" onclick="toggleLayerVisibility(${layer._leaflet_id})">隐藏</button>
+                    <button class="layer-btn" onclick="renameLayer(${layer._leaflet_id})">重命名</button>
+                    <button class="layer-btn delete" onclick="deleteLayer(${layer._leaflet_id})">删除</button>
+                </div>
+            `;
+                layerList.appendChild(item);
+                index++;
+            });
+            updateGeoJSONEditor();
+        }
+
+        function updateGeoJSONEditor() {
+            const geo = drawnItems.toGeoJSON();
+            geojsonEditor.value = JSON.stringify(geo, null, 2);
+        }
+
+        function exportGeoJSON() {
+            const data = JSON.stringify(drawnItems.toGeoJSON(), null, 2);
+            const uri = 'data:application/json;charset=utf-8,' + encodeURIComponent(data);
+            const a = document.createElement('a');
+            a.setAttribute('href', uri);
+            a.setAttribute('download', 'map.geojson');
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function importGeoJSON(raw) {
+            try {
+                const geo = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                L.geoJSON(geo, {
+                    pointToLayer: (feature, latlng) => {
+                        const icon = getMarkerIcon(feature.properties);
+                        const marker = L.marker(latlng, { icon });
+                        marker.feature = { properties: feature.properties || {} };
+                        bindMarkerContextMenu(marker);
+                        return marker;
+                    },
+                    style: feature => {
+                        const style = {};
+                        if (feature.properties) {
+                            if (feature.properties.stroke) style.color = feature.properties.stroke;
+                            if (feature.properties['stroke-width']) style.weight = feature.properties['stroke-width'];
+                            if (feature.properties['stroke-opacity']) style.opacity = feature.properties['stroke-opacity'];
+                            if (feature.properties.fill) style.fillColor = feature.properties.fill;
+                            if (feature.properties['fill-opacity']) style.fillOpacity = feature.properties['fill-opacity'];
+                            if (feature.properties.dashArray || feature.properties.style === 'dashed') style.dashArray = '10,10';
+                        }
+                        return style;
+                    },
+                    onEachFeature: (feature, layer) => {
+                        if (feature.properties && feature.properties.name) {
+                            layer.options.name = feature.properties.name;
+                        }
+                        if (layer instanceof L.Circle && feature.properties) {
+                            if (feature.properties.dashArray || feature.properties.style === 'dashed') {
+                                layer.setStyle({ dashArray: '10,10', weight: 2 });
+                            }
+                        }
+                        // Bind popup for point markers
+                        if (layer instanceof L.Marker) {
+                            const latlng = layer.getLatLng();
+                            const name = feature.properties?.name || '';
+                            const type = feature.properties?.type || '';
+                            const address = feature.properties?.address || '';
+                            const popupHtml = `<h3>${name}</h3>` +
+                                `<p>类型: ${type}<br>地址: ${address}<br>` +
+                                `经纬度: ${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)} ` +
+                                `<button onclick="navigator.clipboard.writeText('${latlng.lat},${latlng.lng}')">复制</button></p>`;
+                            layer.bindPopup(popupHtml);
+                        }
+                        drawnItems.addLayer(layer);
+                        if (layer instanceof L.Marker) bindMarkerContextMenu(layer);
+                    }
+                });
+                updateLayerList();
+                if (drawnItems.getLayers().length) map.fitBounds(drawnItems.getBounds());
+            } catch (e) {
+                alert('GeoJSON 解析错误：' + e.message);
+            }
+        }
+
+        function updateLabels() {
+            drawnItems.eachLayer(layer => {
+                if (layer.getTooltip()) layer.unbindTooltip();
+                if (showLabels && layer.options.name) {
+                    layer.bindTooltip(layer.options.name, { permanent: true, direction: 'center', className: 'layer-label' });
+                }
+            });
+        }
+
+        // ==== Context Menu Functions ==== //
+        function bindMarkerContextMenu(marker) {
+            marker.on('contextmenu', e => {
+                contextMenuTarget = marker;
+                const menu = document.getElementById('contextMenu');
+                menu.style.left = e.originalEvent.pageX + 'px';
+                menu.style.top = e.originalEvent.pageY + 'px';
+                menu.style.display = 'block';
+            });
+        }
+
+        function hideContextMenu() {
+            const menu = document.getElementById('contextMenu');
+            menu.style.display = 'none';
+            contextMenuTarget = null;
+        }
+
+        function editMarkerProperties() {
+            if (!contextMenuTarget) return;
+            const newName = prompt('输入新名称：', contextMenuTarget.options.name || '');
+            if (newName !== null) {
+                contextMenuTarget.options.name = newName;
+                if (!contextMenuTarget.feature) contextMenuTarget.feature = { properties: {} };
+                contextMenuTarget.feature.properties.name = newName;
+                updateLayerList();
+                updateLabels();
+            }
+            hideContextMenu();
+        }
+
+        function changeMarkerIcon() {
+            if (!contextMenuTarget) return;
+            const color = prompt('输入颜色代码 (例如 #00AA00)：', contextMenuTarget.feature?.properties?.['marker-color'] || '#4a90e2');
+            if (color) {
+                const icon = createCustomMarkerIcon(color, contextMenuTarget.feature?.properties?.['marker-symbol'] || 'default');
+                contextMenuTarget.setIcon(icon);
+                if (!contextMenuTarget.feature) contextMenuTarget.feature = { properties: {} };
+                contextMenuTarget.feature.properties['marker-color'] = color;
+            }
+            hideContextMenu();
+        }
+
+        function deleteSelectedMarker() {
+            if (!contextMenuTarget) return;
+            drawnItems.removeLayer(contextMenuTarget);
+            updateLayerList();
+            hideContextMenu();
+        }
+
+        map.on('click', () => hideContextMenu());
+
+        // ==== Event Listeners ==== //
+        baseMapSelect.addEventListener('change', () => {
+            const sel = baseMapSelect.value;
+            Object.values(baseLayers).forEach(l => map.removeLayer(l));
+            baseLayers[sel].addTo(map);
+        });
+
+        map.on(L.Draw.Event.CREATED, e => {
+            const layer = e.layer;
+            layer.options.name = `图层 ${++layerCounter} `;
+            if (layer instanceof L.Marker) {
+                const icon = createCustomMarkerIcon('#4a90e2', 'default');
+                layer.setIcon(icon);
+                layer.feature = { properties: { 'marker-color': '#4a90e2' } };
+                bindMarkerContextMenu(layer);
+            }
+            drawnItems.addLayer(layer);
+            updateLayerList();
+            updateLabels();
+        });
+
+        map.on(L.Draw.Event.EDITED, () => updateLayerList());
+        map.on(L.Draw.Event.DELETED, () => updateLayerList());
+
+        exportGeoJSONBtn.addEventListener('click', exportGeoJSON);
+        geojsonFileInput.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => importGeoJSON(ev.target.result);
+            reader.readAsText(file);
+        });
+
+        toggleEditorBtn.addEventListener('click', () => {
+            if (editorPanel.style.display === 'none') {
+                editorPanel.style.display = 'flex';
+                toggleEditorBtn.textContent = '隐藏代码编辑器';
+                updateGeoJSONEditor();
+            } else {
+                editorPanel.style.display = 'none';
+                toggleEditorBtn.textContent = '显示代码编辑器';
+            }
+        });
+
+        applyEditorBtn.addEventListener('click', () => {
+            drawnItems.clearLayers();
+            importGeoJSON(geojsonEditor.value);
+        });
+
+        clearAllBtn.addEventListener('click', () => {
+            if (confirm('确定要清空所有图层吗？')) {
+                drawnItems.clearLayers();
+                updateLayerList();
+            }
+        });
+
+        showLabelsCheck.addEventListener('change', e => {
+            showLabels = e.target.checked;
+            updateLabels();
+        });
+
+        markerIconSelect.addEventListener('change', e => {
+            currentMarkerColor = e.target.value;
+        });
+
+        // Save Slot Event Listeners
+        saveSlotBtn.addEventListener('click', () => {
+            const slot = saveSlotSelect.value;
+            const content = geojsonEditor.value;
+            const meta = {
+                timestamp: Date.now(),
+                size: content.length
+            };
+            localStorage.setItem(`geojson_${slot} `, content);
+            localStorage.setItem(`geojson_${slot} _meta`, JSON.stringify(meta));
+            updateSlotOptions();
+            alert('已保存到 ' + saveSlotSelect.options[saveSlotSelect.selectedIndex].text.split(' (')[0]);
+        });
+
+        loadSlotBtn.addEventListener('click', () => {
+            const slot = saveSlotSelect.value;
+            const content = localStorage.getItem(`geojson_${slot} `);
+            if (content) {
+                geojsonEditor.value = content;
+            } else {
+                alert(saveSlotSelect.options[saveSlotSelect.selectedIndex].text.split(' (')[0] + ' 为空');
+            }
+        });
+
+        // ---- Legacy Features ---- //
+        exportBtn.addEventListener('click', () => {
+            const rows = [];
+            drawnItems.eachLayer(l => {
+                if (l instanceof L.Marker) {
+                    const ll = l.getLatLng();
+                    rows.push(`${ll.lat},${ll.lng} `);
+                }
+            });
+            const csv = 'data:text/csv;charset=utf-8,latitude,longitude\n' + rows.join('\n');
+            const a = document.createElement('a');
+            a.setAttribute('href', encodeURI(csv));
+            a.setAttribute('download', 'coordinates.csv');
+            document.body.appendChild(a);
+            a.click();
+        });
+
+        // ==== Excel Functions ==== //
+
+        // Download Excel Template
+        downloadTemplateBtn.addEventListener('click', () => {
+            const templateData = [
+                {
+                    '经度 (Longitude)': 120.38,
+                    '纬度 (Latitude)': 36.07,
+                    '名称 (Name)': '示例标记',
+                    '类型 (Type)': 'shop',
+                    '地址 (Address)': '山东省青岛市市南区',
+                    '标记颜色 (marker-color)': '#4a90e2',
+                    '标记符号 (marker-symbol)': 'shop'
+                }
+            ];
+
+            const ws = XLSX.utils.json_to_sheet(templateData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, '标记数据');
+            XLSX.writeFile(wb, '地图标记导入模板.xlsx');
+        });
+
+        // Export to Excel with all fields
+        exportExcelBtn.addEventListener('click', () => {
+            const data = [];
+            drawnItems.eachLayer(l => {
+                if (l instanceof L.Marker) {
+                    const ll = l.getLatLng();
+                    const props = l.feature?.properties || {};
+                    data.push({
+                        '经度 (Longitude)': ll.lng,
+                        '纬度 (Latitude)': ll.lat,
+                        '名称 (Name)': props.name || '',
+                        '类型 (Type)': props.type || '',
+                        '地址 (Address)': props.address || '',
+                        '标记颜色 (marker-color)': props['marker-color'] || '#4a90e2',
+                        '标记符号 (marker-symbol)': props['marker-symbol'] || 'default'
+                    });
+                }
+            });
+
+            if (data.length === 0) {
+                alert('没有标记可导出');
+                return;
+            }
+
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, '标记数据');
+            XLSX.writeFile(wb, '地图标记数据.xlsx');
+        });
+
+        // Import from Excel
+        excelFileInput.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = ev => {
+                try {
+                    const data = new Uint8Array(ev.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const rows = XLSX.utils.sheet_to_json(firstSheet);
+
+                    let addedCount = 0;
+                    rows.forEach(row => {
+                        // Support multiple column name formats
+                        const lng = row['经度 (Longitude)'] || row['Longitude'] || row['lng'] || row['经度'];
+                        const lat = row['纬度 (Latitude)'] || row['Latitude'] || row['lat'] || row['纬度'];
+
+                        if (!lng || !lat || isNaN(parseFloat(lng)) || isNaN(parseFloat(lat))) {
+                            return;
+                        }
+
+                        const properties = {
+                            name: row['名称 (Name)'] || row['Name'] || row['name'] || row['名称'] || '未命名',
+                            type: row['类型 (Type)'] || row['Type'] || row['type'] || row['类型'] || '',
+                            address: row['地址 (Address)'] || row['Address'] || row['address'] || row['地址'] || '',
+                            'marker-color': row['标记颜色 (marker-color)'] || row['marker-color'] || row['color'] || '#4a90e2',
+                            'marker-symbol': row['标记符号 (marker-symbol)'] || row['marker-symbol'] || row['symbol'] || 'default'
+                        };
+
+                        const icon = getMarkerIcon(properties);
+                        const marker = L.marker([parseFloat(lat), parseFloat(lng)], { icon });
+                        marker.feature = { properties };
+
+                        // Bind popup
+                        const latlng = marker.getLatLng();
+                        const popupHtml = `<h3>${properties.name}</h3>` +
+                            `<p>类型: ${properties.type}<br>地址: ${properties.address}<br>` +
+                            `经纬度: ${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)} ` +
+                            `<button onclick="navigator.clipboard.writeText('${latlng.lat},${latlng.lng}')">复制</button></p>`;
+                        marker.bindPopup(popupHtml);
+
+                        bindMarkerContextMenu(marker);
+                        drawnItems.addLayer(marker);
+                        addedCount++;
+                    });
+
+                    if (addedCount > 0) {
+                        updateLayerList();
+                        map.fitBounds(drawnItems.getBounds());
+                        alert(`成功导入 ${addedCount} 个标记`);
+                    } else {
+                        alert('未找到有效的坐标数据');
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert('Excel 文件解析失败：' + err.message);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // Enhanced Coord Import with PapaParse and Type Detection
+        coordFileInput.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: function (results) {
+                    const rows = results.data;
+                    let addedCount = 0;
+
+                    rows.forEach(row => {
+                        let lat, lng;
+
+                        const latKeys = ['纬度', 'Latitude', 'lat', 'latitude', '纬度 (Latitude)'];
+                        const lngKeys = ['经度', 'Longitude', 'lng', 'longitude', '经度 (Longitude)'];
+
+                        for (const key of latKeys) {
+                            if (row[key]) { lat = parseFloat(row[key]); break; }
+                        }
+                        for (const key of lngKeys) {
+                            if (row[key]) { lng = parseFloat(row[key]); break; }
+                        }
+
+                        if (!isNaN(lat) && !isNaN(lng)) {
+                            const name = row['门店'] || row['name'] || row['Name'] || row['名称'] || '未命名';
+                            const type = row['类型'] || row['type'] || row['Type'] || '';
+                            const address = row['地址'] || row['address'] || row['Address'] || '';
+
+                            const properties = {
+                                name: name,
+                                type: type,
+                                address: address
+                            };
+
+                            const icon = getMarkerIcon(properties);
+                            const marker = L.marker([lat, lng], { icon: icon });
+
+                            marker.feature = { properties: properties };
+
+                            let popupContent = `< b > ${name}</b > `;
+                            if (type) popupContent += `< br > 类型: ${type} `;
+                            if (address) popupContent += `< br > 地址: ${address} `;
+                            marker.bindPopup(popupContent);
+
+                            bindMarkerContextMenu(marker);
+                            drawnItems.addLayer(marker);
+                            addedCount++;
+                        }
+                    });
+
+                    if (addedCount > 0) {
+                        updateLayerList();
+                        map.fitBounds(drawnItems.getBounds());
+                        alert(`成功导入 ${addedCount} 个标记`);
+                    } else {
+                        alert('未找到有效的坐标数据，请检查 CSV 文件格式');
+                    }
+                },
+                error: function (err) {
+                    alert('CSV 解析失败: ' + err.message);
+                }
+            });
+        });
+
+        addressFileInput.addEventListener('change', e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async ev => {
+                const rows = Papa.parse(ev.target.result, { header: true }).data;
+                for (const row of rows) {
+                    const address = row.address || row.Address || row.地址;
+                    if (!address) continue;
+                    try {
+                        const resp = await fetch(`${AMAP_GEOCODE_URL}?key=${AMAP_API_KEY}&address=${encodeURIComponent(address)}`);
+                        const data = await resp.json();
+                        if (data.geocodes && data.geocodes.length) {
+                            const [lng, lat] = data.geocodes[0].location.split(',');
+                            const icon = createCustomMarkerIcon('#4a90e2', 'default');
+                            const marker = L.marker([parseFloat(lat), parseFloat(lng)], { icon });
+                            marker.feature = { properties: { name: address } };
+                            bindMarkerContextMenu(marker);
+                            drawnItems.addLayer(marker);
+                        }
+                    } catch (err) {
+                        console.error(err);
+                    }
+                }
+                updateLayerList();
+                if (drawnItems.getLayers().length) map.fitBounds(drawnItems.getBounds());
+            };
+            reader.readAsText(file);
+        });
+
+        togglePickerBtn.addEventListener('click', () => {
+            pickerMode = !pickerMode;
+            togglePickerBtn.textContent = pickerMode ? '关闭坐标拾取' : '启用坐标拾取';
+            pickedCoordsDiv.textContent = pickerMode ? '点击地图拾取坐标...' : '';
+            map.getContainer().style.cursor = pickerMode ? 'crosshair' : '';
+        });
+
+        addManualMarkerBtn.addEventListener('click', () => {
+            manualMarkerMode = !manualMarkerMode;
+            addManualMarkerBtn.textContent = manualMarkerMode ? '取消添加' : '点击地图添加';
+            map.getContainer().style.cursor = manualMarkerMode ? 'crosshair' : '';
+        });
+
+        // Layer panel toggle
+        toggleLayerPanelBtn.addEventListener('click', () => {
+            const panel = document.getElementById('layerPanel');
+            if (panel.style.display === 'none' || !panel.style.display) {
+                panel.style.display = 'flex';
+                toggleLayerPanelBtn.textContent = '隐藏图层面板';
+            } else {
+                panel.style.display = 'none';
+                toggleLayerPanelBtn.textContent = '显示图层面板';
+            }
+        });
+
+        searchBtn.addEventListener('click', async () => {
+            const addr = searchAddressInput.value.trim();
+            if (!addr) { alert('请输入地址'); return; }
+            try {
+                const resp = await fetch(`${AMAP_GEOCODE_URL}?key=${AMAP_API_KEY}&address=${encodeURIComponent(addr)}`);
+                const data = await resp.json();
+                if (data.geocodes && data.geocodes.length) {
+                    const [lng, lat] = data.geocodes[0].location.split(',');
+                    const latN = parseFloat(lat), lngN = parseFloat(lng);
+                    map.setView([latN, lngN], 15);
+                    const icon = createCustomMarkerIcon('#4a90e2', 'default');
+                    const marker = L.marker([latN, lngN], { icon });
+                    marker.feature = { properties: { name: addr } };
+                    bindMarkerContextMenu(marker);
+                    drawnItems.addLayer(marker);
+                    updateLayerList();
+                } else {
+                    alert('未找到该地址');
+                }
+            } catch (e) {
+                console.error(e);
+                alert('搜索失败');
+            }
+        });
+
+        gotoCoordBtn.addEventListener('click', () => {
+            const lat = parseFloat(gotoLatInput.value);
+            const lng = parseFloat(gotoLngInput.value);
+            if (isNaN(lat) || isNaN(lng)) { alert('请输入有效坐标'); return; }
+            map.setView([lat, lng], 15);
+            const icon = createCustomMarkerIcon('#4a90e2', 'default');
+            const marker = L.marker([lat, lng], { icon });
+            marker.feature = { properties: { name: `坐标: ${lat.toFixed(6)}, ${lng.toFixed(6)} ` } };
+            bindMarkerContextMenu(marker);
+            drawnItems.addLayer(marker);
+            updateLayerList();
+        });
+
+        // Global functions for inline HTML event handlers
+        window.toggleLayerVisibility = function (id) {
+            const layer = drawnItems.getLayer(id);
+            if (layer) {
+                if (map.hasLayer(layer)) {
+                    map.removeLayer(layer);
+                } else {
+                    map.addLayer(layer);
+                }
+            }
+        };
+
+        window.renameLayer = function (id) {
+            const layer = drawnItems.getLayer(id);
+            if (layer) {
+                const newName = prompt('输入新名称：', layer.options.name || '');
+                if (newName !== null) {
+                    layer.options.name = newName;
+                    if (!layer.feature) layer.feature = { properties: {} };
+                    layer.feature.properties.name = newName;
+                    updateLayerList();
+                    updateLabels();
+                }
+            }
+        };
+
+        window.deleteLayer = function (id) {
+            const layer = drawnItems.getLayer(id);
+            if (layer) {
+                drawnItems.removeLayer(layer);
+                updateLayerList();
+            }
+        };
+    </script>
+</body>
+
+</html>
