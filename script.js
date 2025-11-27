@@ -1,7 +1,7 @@
 // script.js - GeoJSON Map Editor with FontAwesome marker icons
 
 // ==== Configuration ==== //
-const AMAP_API_KEY = 'f9ef1f8a897389df48a43e18ac4660d8';
+const AMAP_API_KEY = '高德地图API';
 const AMAP_GEOCODE_URL = 'https://restapi.amap.com/v3/geocode/geo';
 
 // ==== Initialize Map ==== //
@@ -858,3 +858,4 @@ window.deleteLayer = function (id) {
 window.editMarkerProperties = editMarkerProperties;
 window.changeMarkerIcon = changeMarkerIcon;
 window.deleteSelectedMarker = deleteSelectedMarker;
+
