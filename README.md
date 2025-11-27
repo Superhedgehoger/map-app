@@ -2,7 +2,7 @@
 
 ## 🎉 新功能概览
 
-现在你的地图应用已经升级为功能完整的 **GeoJSON 编辑器**，类似 geojson.io！
+功能完整的 **GeoJSON 编辑器**，类似 geojson.io！
 
 ### 核心功能
 1. ✅ **Leaflet.draw 绘图工具** - 圆形、矩形、多边形、折线、标记
@@ -21,7 +21,7 @@
 
 ### 1. 启动应用
 ```powershell
-CD C:\Users\DJY\Documents\AnGoogle\map-app
+CD C:\目录
 python -m http.server 8000
 ```
 
@@ -266,3 +266,4 @@ A: 确保点击了 **"应用到地图"** 按钮。
 ---
 
 **享受你的 GeoJSON 地图编辑器！** 🗺️✨
+
