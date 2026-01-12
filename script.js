@@ -736,11 +736,6 @@ function bindMarkerPopup(layer) {
             <button onclick="navigator.clipboard.writeText('${latlng.lat},${latlng.lng}'); showBriefMessage('✅ 坐标已复制')" class="btn-copy" style="padding: 2px 6px; font-size: 0.8rem; margin-left: 5px; cursor: pointer;">复制</button>
         </div>
         ${eventListHtml}
-        <div class="popup-actions" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; display: flex; gap: 8px;">
-            <button onclick="openEventTrackerForLayerId(${L.stamp(layer)})" class="btn-popup-action" style="flex: 1; background: #4a90e2; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 0.85rem;">
-                <i class="fa-solid fa-calendar-plus"></i> ${events.length > 0 ? '管理事件' : '添加事件'}
-            </button>
-        </div>
     </div>`;
 
     layer.bindPopup(popupHtml, { maxWidth: 300 });
@@ -761,6 +756,13 @@ function bindMarkerContextMenu(marker) {
 
     // 左键：高亮标记并设置为选中，Ctrl+左键打开属性抽屉
     marker.on('click', e => {
+        // 检查是否处于多选模式
+        if (typeof customGroupManager !== 'undefined' && customGroupManager && customGroupManager.selectionMode) {
+            L.DomEvent.stopPropagation(e);
+            customGroupManager.toggleMarkerSelection(marker);
+            return;
+        }
+
         // 使用 SelectionManager 统一管理选中状态
         if (typeof selectionManager !== 'undefined') {
             selectionManager.select(marker);
