@@ -287,13 +287,7 @@ function changeIconFromDrawer() {
     openIconPicker();
 }
 
-function openEventTrackerFromDrawer() {
-    if (!currentEditingMarker) return;
-    closePropertyDrawer();
-    setTimeout(() => {
-        openEventTracker(currentEditingMarker);
-    }, 350);
-}
+
 
 function deleteMarkerFromDrawer() {
     if (!currentEditingMarker) return;
@@ -318,7 +312,7 @@ window.updateCustomPropertyValue = updateCustomPropertyValue;
 window.savePropertyChanges = savePropertyChanges;
 window.copyCurrentCoordinates = copyCurrentCoordinates;
 window.changeIconFromDrawer = changeIconFromDrawer;
-window.openEventTrackerFromDrawer = openEventTrackerFromDrawer;
+
 window.deleteMarkerFromDrawer = deleteMarkerFromDrawer;
 
 console.log('Property drawer system initialized');

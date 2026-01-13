@@ -317,88 +317,11 @@
     <!--地图容器 -->
     <div id="map"></div>
 
-    <!-- 战略事件追踪器面板 -->
-    <div id="eventTrackerPanel" class="panel" style="display:none;">
-        <div class="panel-header">
-            <h2>战略事件追踪器</h2>
-            <button id="closeEventTrackerBtn" onclick="closeEventTracker()">关闭</button>
-        </div>
 
-        <p id="eventTrackerFeatureName" style="font-weight:600; margin-bottom:10px; color:#4a90e2;"></p>
-
-        <!-- 事件列表视图 -->
-        <div id="eventListView">
-            <div id="eventListContainer"></div>
-            <button class="btn-add-event" onclick="createNewEvent()">+ 新增事件</button>
-        </div>
-
-        <!-- 事件编辑视图 -->
-        <div id="eventEditView" style="display:none;">
-            <div class="edit-view-header">
-                <button class="btn-back" onclick="showEventList()">◀ 返回列表</button>
-                <input type="text" id="currentEventName" placeholder="事件名称" />
-            </div>
-
-            <div id="eventTrackerContent" class="scrollable-content">
-                <!-- Todo List Section -->
-                <div class="tracker-section">
-                    <h3>任务清单</h3>
-                    <div class="todo-input-group">
-                        <input type="text" id="newTodoInput" placeholder="添加新任务..." />
-                        <button id="addTodoBtn" onclick="addTodoItemClick()">+</button>
-                    </div>
-                    <div id="todoList"></div>
-                </div>
-
-                <!-- Notes Section -->
-                <div class="tracker-section">
-                    <h3>备注说明</h3>
-                    <textarea id="eventNotes" placeholder="输入文本描述..." rows="4"></textarea>
-                </div>
-
-                <!-- URL Links Section -->
-                <div class="tracker-section">
-                    <h3>相关链接</h3>
-                    <div class="url-input-group">
-                        <input type="text" id="urlTitle" placeholder="链接标题" />
-                        <input type="url" id="urlAddress" placeholder="URL地址" />
-                        <button id="addUrlBtn" onclick="addUrlItemClick()">+</button>
-                    </div>
-                    <div id="urlList"></div>
-                </div>
-
-                <!-- Timeline Section -->
-                <div class="tracker-section">
-                    <h3>时间轴</h3>
-                    <div class="timeline-input-group">
-                        <input type="datetime-local" id="timelineDate" step="60" />
-                        <input type="text" id="timelineTitle" placeholder="事件标题" />
-                        <button id="addTimelineBtn" onclick="addTimelineEventClick()">+</button>
-                    </div>
-                    <div id="timelineDisplay"></div>
-                </div>
-
-                <!-- Attachments Section -->
-                <div class="tracker-section">
-                    <h3>📎 附件</h3>
-                    <div class="attachment-upload">
-                        <input type="file" id="attachmentInput" onchange="uploadAttachment()" />
-                        <label for="attachmentInput" class="upload-btn">选择文件</label>
-                        <span class="upload-hint">支持图片、PDF等 (最大500KB)</span>
-                    </div>
-                    <div id="attachmentList" class="attachment-list"></div>
-                </div>
-            </div>
-
-
-            <!-- Save Button -->
-            <button id="saveEventDataBtn" onclick="saveCurrentEvent()">保存事件</button>
-        </div>
-    </div>
 
     <!-- 右键菜单 -->
     <div id="contextMenu" class="context-menu" style="display:none;">
-        <div class="context-menu-item" onclick="openEventTrackerFromMenu()">📋 事件追踪器</div>
+
         <div class="context-menu-item" onclick="openPropertyEditor()">📝 属性编辑器</div>
         <div class="context-menu-item" onclick="openIconPicker()">🎨 更改图标</div>
         <div class="context-menu-item" onclick="deleteSelectedMarker()">删除标记</div>
@@ -673,9 +596,7 @@
                 <div class="property-section">
                     <h3>快捷操作</h3>
                     <div class="quick-actions">
-                        <button class="action-btn" onclick="openEventTrackerFromDrawer()">
-                            <i class="fa-solid fa-calendar-check"></i> 事件追踪器
-                        </button>
+
                         <button class="action-btn danger" onclick="deleteMarkerFromDrawer()">
                             <i class="fa-solid fa-trash"></i> 删除标记
                         </button>

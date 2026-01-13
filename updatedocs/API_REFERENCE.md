@@ -105,9 +105,6 @@ copyCurrentCoordinates()
 // 从抽屉打开图标选择器
 changeIconFromDrawer()
 
-// 从抽屉打开事件追踪器
-openEventTrackerFromDrawer()
-
 // 从抽屉删除标记
 deleteMarkerFromDrawer()
 ```
@@ -131,27 +128,6 @@ toggleTableView()
 
 // 关闭表格
 closeTableView()
-```
-
----
-
-## 事件追踪器
-
-```javascript
-// 打开事件追踪器
-openEventTracker(marker)
-
-// 从图层ID打开
-openEventTrackerForLayerId(layerId)
-
-// 关闭事件追踪器
-closeEventTracker()
-
-// 添加事件
-addEvent()
-
-// 保存事件
-saveEvents()
 ```
 
 ---
