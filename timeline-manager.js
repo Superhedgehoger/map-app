@@ -208,13 +208,8 @@ class TimelineManager {
 
         console.log(`Loading snapshot: ${snapshot.name}`);
 
-        // 清空当前地图
-        if (typeof drawnItems !== 'undefined') {
-            drawnItems.clearLayers();
-        }
-        if (typeof markerGroupManager !== 'undefined' && markerGroupManager) {
-            markerGroupManager.clear();
-        }
+        // ⚠️ 完全重置所有运行时状态，确保快照隔离
+        this._resetRuntimeState();
 
         // 恢复图层数据
         snapshot.layers.forEach(layerData => {
@@ -230,10 +225,6 @@ class TimelineManager {
 
         // 恢复自定义组
         if (typeof customGroupManager !== 'undefined' && customGroupManager && snapshot.customGroups) {
-            // 清空现有组
-            customGroupManager.groups.clear();
-            customGroupManager.markerToGroups.clear();
-
             // 重建组（注意：需要在标记加载后执行）
             setTimeout(() => {
                 Object.values(snapshot.customGroups).forEach(groupData => {
@@ -263,6 +254,57 @@ class TimelineManager {
         }
 
         return true;
+    }
+
+    // ⚠️ 完全重置所有运行时状态（快照加载前必须调用）
+    _resetRuntimeState() {
+        console.log('Resetting all runtime state...');
+
+        // 1. 清空 MarkerGroupManager（必须在 drawnItems 之前）
+        if (typeof markerGroupManager !== 'undefined' && markerGroupManager) {
+            markerGroupManager.clear();
+            // 清空内部索引
+            if (markerGroupManager.coordIndex) {
+                markerGroupManager.coordIndex.clear();
+            }
+            if (markerGroupManager.markerToGroup) {
+                markerGroupManager.markerToGroup.clear();
+            }
+        }
+
+        // 2. 清空 drawnItems
+        if (typeof drawnItems !== 'undefined') {
+            drawnItems.clearLayers();
+        }
+
+        // 3. 清空自定义组
+        if (typeof customGroupManager !== 'undefined' && customGroupManager) {
+            customGroupManager.groups.clear();
+            customGroupManager.markerToGroups.clear();
+            customGroupManager._renderGroupList();
+        }
+
+        // 4. 清空 SelectionManager 状态
+        if (typeof selectionManager !== 'undefined' && selectionManager) {
+            selectionManager.clear();
+        }
+
+        // 5. 清空表格数据
+        if (typeof featureTable !== 'undefined' && featureTable) {
+            featureTable.clearData();
+        }
+
+        // 6. 重置统计缓存
+        if (typeof updateLayerStats === 'function') {
+            updateLayerStats();
+        }
+
+        // 7. 更新图层详情面板
+        if (typeof updateLayerDetailsPanel === 'function') {
+            updateLayerDetailsPanel(null);
+        }
+
+        console.log('Runtime state reset complete');
     }
 
     _importGeoJSON(geojson) {

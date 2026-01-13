@@ -1287,9 +1287,55 @@ applyEditorBtn.addEventListener('click', () => {
 });
 
 clearAllBtn.addEventListener('click', () => {
-    if (confirm('确定要清空所有图层吗？')) {
+    // 检查是否有数据可清空
+    let hasData = false;
+    if (typeof drawnItems !== 'undefined') {
+        drawnItems.eachLayer(() => { hasData = true; });
+    }
+    if (typeof markerGroupManager !== 'undefined' && markerGroupManager && markerGroupManager.groups.size > 0) {
+        hasData = true;
+    }
+
+    if (!hasData) {
+        alert('当前没有可清空的数据');
+        return;
+    }
+
+    if (confirm('⚠️ 确定要清空所有图层吗？\n\n此操作将删除所有标记，无法撤销！')) {
+        // 清空 MarkerGroupManager
+        if (typeof markerGroupManager !== 'undefined' && markerGroupManager) {
+            markerGroupManager.clear();
+        }
+
+        // 清空 drawnItems
         drawnItems.clearLayers();
+
+        // 清空自定义组
+        if (typeof customGroupManager !== 'undefined' && customGroupManager) {
+            customGroupManager.groups.clear();
+            customGroupManager.markerToGroups.clear();
+            customGroupManager._renderGroupList();
+        }
+
+        // 刷新所有视图
         updateLayerList();
+
+        if (typeof updateFeatureTable === 'function') {
+            updateFeatureTable();
+        }
+        if (typeof updateDashboard === 'function') {
+            updateDashboard();
+        }
+        if (typeof updateLayerStats === 'function') {
+            updateLayerStats();
+        }
+
+        // 更新图层详情面板
+        updateLayerDetailsPanel(null);
+
+        if (typeof showBriefMessage === 'function') {
+            showBriefMessage('✅ 已清空所有图层');
+        }
     }
 });
 
@@ -2210,7 +2256,10 @@ function loadArchive(id) {
         return;
     }
 
-    drawnItems.clearLayers();
+    // 完整重置地图状态（确保数据隔离）
+    resetMapStateForImport();
+
+    // 导入数据
     importGeoJSON(data);
 
     // Update current archive
@@ -2219,8 +2268,58 @@ function loadArchive(id) {
     currentArchiveId = id;
     updateCurrentArchiveInfo(arc?.name || '未知');
 
+    // 刷新所有视图
+    setTimeout(() => {
+        if (typeof updateLayerList === 'function') updateLayerList();
+        if (typeof updateFeatureTable === 'function') updateFeatureTable();
+        if (typeof updateDashboard === 'function') updateDashboard();
+        if (typeof updateLayerStats === 'function') updateLayerStats();
+        if (typeof updateLayerDetailsPanel === 'function') updateLayerDetailsPanel();
+    }, 100);
+
     console.log('加载存档:', arc?.name);
+    if (typeof showBriefMessage === 'function') {
+        showBriefMessage(`✅ 已加载存档：${arc?.name}`);
+    }
 }
+
+// 重置地图状态（用于导入/加载前的数据隔离）
+function resetMapStateForImport() {
+    console.log('Resetting map state for import...');
+
+    // 清空选中状态
+    if (typeof selectionManager !== 'undefined' && selectionManager) {
+        selectionManager.clearSelection();
+    }
+
+    // 清空高亮状态
+    if (typeof clearAllHighlights === 'function') {
+        clearAllHighlights();
+    }
+
+    // 清空 MarkerGroupManager
+    if (typeof markerGroupManager !== 'undefined' && markerGroupManager) {
+        markerGroupManager.clear();
+    }
+
+    // 清空 drawnItems
+    if (typeof drawnItems !== 'undefined') {
+        drawnItems.clearLayers();
+    }
+
+    // 清空自定义组
+    if (typeof customGroupManager !== 'undefined' && customGroupManager) {
+        customGroupManager.groups.clear();
+        customGroupManager.markerToGroups.clear();
+        if (customGroupManager.selectedMarkers) {
+            customGroupManager.selectedMarkers.clear();
+        }
+        customGroupManager._renderGroupList();
+    }
+
+    console.log('Map state reset complete');
+}
+window.resetMapStateForImport = resetMapStateForImport;
 
 // Delete archive
 function deleteArchive(id) {
@@ -2941,3 +3040,157 @@ document.addEventListener('click', (e) => {
         closeToolsMenu();
     }
 });
+
+// ==== Layer Details Panel - 图层详情面板 ==== //
+function updateLayerDetailsPanel(selectedLayer = null) {
+    const container = document.getElementById('layerDetailsContent');
+    if (!container) return;
+
+    // 收集所有标记
+    const allMarkers = [];
+    const processedMarkers = new Set();
+
+    if (typeof drawnItems !== 'undefined') {
+        drawnItems.eachLayer(layer => {
+            if (layer instanceof L.Marker && !layer._isGroupMarker) {
+                if (!processedMarkers.has(layer)) {
+                    processedMarkers.add(layer);
+                    allMarkers.push(layer);
+                }
+            }
+        });
+    }
+
+    if (typeof markerGroupManager !== 'undefined' && markerGroupManager) {
+        markerGroupManager.groups.forEach(group => {
+            group.markers.forEach(marker => {
+                if (!processedMarkers.has(marker)) {
+                    processedMarkers.add(marker);
+                    allMarkers.push(marker);
+                }
+            });
+        });
+    }
+
+    if (allMarkers.length === 0) {
+        container.innerHTML = '<div class="no-selection">暂无图层数据</div>';
+        return;
+    }
+
+    // 统计类型和样式分布
+    const styleStats = new Map();
+    allMarkers.forEach(marker => {
+        const props = marker.feature?.properties || {};
+        const type = props.类型 || props.type || props.category || '未分类';
+        const color = props['marker-color'] || '#4a90e2';
+        const symbol = props['marker-symbol'] || 'default';
+
+        const key = `${type}|${color}|${symbol}`;
+        if (!styleStats.has(key)) {
+            styleStats.set(key, { type, color, symbol, count: 0 });
+        }
+        styleStats.get(key).count++;
+    });
+
+    // 按数量排序
+    const sortedStats = Array.from(styleStats.values())
+        .sort((a, b) => b.count - a.count);
+
+    // 计算同坐标组数
+    let groupCount = 0;
+    if (typeof markerGroupManager !== 'undefined' && markerGroupManager) {
+        markerGroupManager.groups.forEach(group => {
+            if (group.getCount() > 1) groupCount++;
+        });
+    }
+
+    // 生成 HTML
+    let html = `
+        <div class="layer-detail-row">
+            <span class="detail-label">图层类型</span>
+            <span class="detail-value">Point (标记)</span>
+        </div>
+        <div class="layer-detail-row">
+            <span class="detail-label">标记数量</span>
+            <span class="detail-value">${allMarkers.length} 个</span>
+        </div>
+        ${groupCount > 0 ? `
+        <div class="layer-detail-row">
+            <span class="detail-label">同坐标组</span>
+            <span class="detail-value">${groupCount} 组</span>
+        </div>
+        ` : ''}
+        
+        <div class="style-distribution">
+            <div class="distribution-title">样式分布</div>
+    `;
+
+    // 最多显示 5 个类型
+    const displayStats = sortedStats.slice(0, 5);
+    displayStats.forEach(stat => {
+        const iconClass = getIconClass(stat.symbol);
+        html += `
+            <div class="style-stat-item">
+                <span class="style-color" style="background-color: ${stat.color}"></span>
+                <span class="style-icon"><i class="${iconClass}"></i></span>
+                <span class="style-type">${stat.type}</span>
+                <span class="style-count">${stat.count}</span>
+            </div>
+        `;
+    });
+
+    if (sortedStats.length > 5) {
+        html += `<div class="style-more">还有 ${sortedStats.length - 5} 种类型...</div>`;
+    }
+
+    html += `</div>`;
+
+    // 快捷操作
+    html += `
+        <div class="layer-quick-actions">
+            <button onclick="exportCurrentLayerGeoJSON()" title="导出为 GeoJSON">
+                <i class="fa-solid fa-download"></i> 导出
+            </button>
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
+
+function getIconClass(symbol) {
+    if (typeof MARKER_ICONS !== 'undefined' && MARKER_ICONS[symbol]) {
+        return MARKER_ICONS[symbol].class;
+    }
+    return 'fa-solid fa-location-dot';
+}
+
+function exportCurrentLayerGeoJSON() {
+    if (typeof exportGeoJSON === 'function') {
+        exportGeoJSON();
+    } else {
+        // 备用导出逻辑
+        const geoJSON = { type: 'FeatureCollection', features: [] };
+        if (typeof drawnItems !== 'undefined') {
+            drawnItems.eachLayer(layer => {
+                if (layer.toGeoJSON) {
+                    geoJSON.features.push(layer.toGeoJSON());
+                }
+            });
+        }
+        const blob = new Blob([JSON.stringify(geoJSON, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'layer_export.geojson';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+}
+
+window.updateLayerDetailsPanel = updateLayerDetailsPanel;
+window.exportCurrentLayerGeoJSON = exportCurrentLayerGeoJSON;
+
+// 初始化时调用
+setTimeout(() => {
+    updateLayerDetailsPanel();
+}, 800);
