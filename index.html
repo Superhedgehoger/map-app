@@ -13,6 +13,9 @@
     <!-- Leaflet.draw CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"
         crossorigin="" />
+    <!-- Leaflet.markercluster CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
     <!-- Tabulator CSS (dark theme) -->
     <link href="https://unpkg.com/tabulator-tables@5.5/dist/css/tabulator_midnight.min.css" rel="stylesheet">
     <!-- Custom Styles -->
@@ -130,6 +133,17 @@
                     <button id="exportBtn" class="btn-secondary">
                         <i class="fa-solid fa-file-csv"></i> 导出 CSV
                     </button>
+                    <div class="control-group" style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">
+                        <button id="clearAllLayersBtn" class="btn-danger" onclick="clearAllLayersWithConfirm()">
+                            <i class="fa-solid fa-trash-can"></i> 清空所有图层
+                        </button>
+                    </div>
+                    <div class="control-group checkbox-row" style="margin-top: 8px;">
+                        <label>
+                            <input type="checkbox" id="enableClusterCheck" onchange="toggleClusterMode(this.checked)" />
+                            启用点聚合
+                        </label>
+                    </div>
                 </div>
             </div>
 
@@ -183,7 +197,7 @@
                         </button>
                     </div>
                     <div class="control-group">
-                        <button id="toggleLayerPanelBtn" class="btn-secondary">
+                        <button id="toggleLayerPanelBtn" class="btn-secondary" onclick="toggleLayerPanel()">
                             <i class="fa-solid fa-layer-group"></i> 显示图层面板
                         </button>
                     </div>
@@ -196,6 +210,22 @@
                             <option value="orange">橙色标记</option>
                             <option value="violet">紫色标记</option>
                             <option value="grey">灰色标记</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="basemapSelect">底图选择</label>
+                        <select id="basemapSelect" onchange="switchBaseLayer(this.value)">
+                            <optgroup label="国际通用">
+                                <option value="osm" selected>OpenStreetMap</option>
+                                <option value="satellite">卫星影像 (Esri)</option>
+                                <option value="dark">暗色主题 (CartoDB)</option>
+                                <option value="light">亮色主题 (CartoDB)</option>
+                                <option value="terrain">地形图 (OpenTopo)</option>
+                            </optgroup>
+                            <optgroup label="中国底图">
+                                <option value="amap">高德地图</option>
+                                <option value="amapSatellite">高德卫星</option>
+                            </optgroup>
                         </select>
                     </div>
                     <div class="control-group checkbox-row">
@@ -317,11 +347,88 @@
     <!--地图容器 -->
     <div id="map"></div>
 
+    <!-- 战略事件追踪器面板 -->
+    <div id="eventTrackerPanel" class="panel" style="display:none;">
+        <div class="panel-header">
+            <h2>战略事件追踪器</h2>
+            <button id="closeEventTrackerBtn" onclick="closeEventTracker()">关闭</button>
+        </div>
 
+        <p id="eventTrackerFeatureName" style="font-weight:600; margin-bottom:10px; color:#4a90e2;"></p>
+
+        <!-- 事件列表视图 -->
+        <div id="eventListView">
+            <div id="eventListContainer"></div>
+            <button class="btn-add-event" onclick="createNewEvent()">+ 新增事件</button>
+        </div>
+
+        <!-- 事件编辑视图 -->
+        <div id="eventEditView" style="display:none;">
+            <div class="edit-view-header">
+                <button class="btn-back" onclick="showEventList()">◀ 返回列表</button>
+                <input type="text" id="currentEventName" placeholder="事件名称" />
+            </div>
+
+            <div id="eventTrackerContent" class="scrollable-content">
+                <!-- Todo List Section -->
+                <div class="tracker-section">
+                    <h3>任务清单</h3>
+                    <div class="todo-input-group">
+                        <input type="text" id="newTodoInput" placeholder="添加新任务..." />
+                        <button id="addTodoBtn" onclick="addTodoItemClick()">+</button>
+                    </div>
+                    <div id="todoList"></div>
+                </div>
+
+                <!-- Notes Section -->
+                <div class="tracker-section">
+                    <h3>备注说明</h3>
+                    <textarea id="eventNotes" placeholder="输入文本描述..." rows="4"></textarea>
+                </div>
+
+                <!-- URL Links Section -->
+                <div class="tracker-section">
+                    <h3>相关链接</h3>
+                    <div class="url-input-group">
+                        <input type="text" id="urlTitle" placeholder="链接标题" />
+                        <input type="url" id="urlAddress" placeholder="URL地址" />
+                        <button id="addUrlBtn" onclick="addUrlItemClick()">+</button>
+                    </div>
+                    <div id="urlList"></div>
+                </div>
+
+                <!-- Timeline Section -->
+                <div class="tracker-section">
+                    <h3>时间轴</h3>
+                    <div class="timeline-input-group">
+                        <input type="datetime-local" id="timelineDate" step="60" />
+                        <input type="text" id="timelineTitle" placeholder="事件标题" />
+                        <button id="addTimelineBtn" onclick="addTimelineEventClick()">+</button>
+                    </div>
+                    <div id="timelineDisplay"></div>
+                </div>
+
+                <!-- Attachments Section -->
+                <div class="tracker-section">
+                    <h3>📎 附件</h3>
+                    <div class="attachment-upload">
+                        <input type="file" id="attachmentInput" onchange="uploadAttachment()" />
+                        <label for="attachmentInput" class="upload-btn">选择文件</label>
+                        <span class="upload-hint">支持图片、PDF等 (最大500KB)</span>
+                    </div>
+                    <div id="attachmentList" class="attachment-list"></div>
+                </div>
+            </div>
+
+
+            <!-- Save Button -->
+            <button id="saveEventDataBtn" onclick="saveCurrentEvent()">保存事件</button>
+        </div>
+    </div>
 
     <!-- 右键菜单 -->
     <div id="contextMenu" class="context-menu" style="display:none;">
-
+        <div class="context-menu-item" onclick="openEventTrackerFromMenu(event)">📋 事件追踪器</div>
         <div class="context-menu-item" onclick="openPropertyEditor()">📝 属性编辑器</div>
         <div class="context-menu-item" onclick="openIconPicker()">🎨 更改图标</div>
         <div class="context-menu-item" onclick="deleteSelectedMarker()">删除标记</div>
@@ -596,7 +703,9 @@
                 <div class="property-section">
                     <h3>快捷操作</h3>
                     <div class="quick-actions">
-
+                        <button class="action-btn" onclick="openEventTrackerFromDrawer()">
+                            <i class="fa-solid fa-calendar-check"></i> 事件追踪器
+                        </button>
                         <button class="action-btn danger" onclick="deleteMarkerFromDrawer()">
                             <i class="fa-solid fa-trash"></i> 删除标记
                         </button>
@@ -615,6 +724,8 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <!-- Leaflet.draw JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js" crossorigin=""></script>
+    <!-- Leaflet.markercluster JS -->
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     <!-- PapaParse for CSV parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"
         crossorigin="anonymous"></script>

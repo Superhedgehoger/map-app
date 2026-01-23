@@ -4,6 +4,14 @@
 const AMAP_API_KEY = 'f9ef1f8a897389df48a43e18ac4660d8';
 const AMAP_GEOCODE_URL = 'https://restapi.amap.com/v3/geocode/geo';
 
+// ==== 底图服务 API Key（需自行申请填入）==== //
+// 高德地图 Web 服务 Key（用于底图瓦片）
+const AMAP_MAP_KEY = '';
+// 腾讯地图 Key
+const TENCENT_MAP_KEY = '';
+// 天地图 Token（需在 https://console.tianditu.gov.cn/ 注册）
+const TIANDITU_TOKEN = '';
+
 // ==== Initialize Map ==== //
 const map = L.map('map', {
     zoomControl: false  // 禁用默认位置的缩放控件
@@ -14,8 +22,11 @@ L.control.zoom({
     position: 'bottomleft'
 }).addTo(map);
 
-// Base layers - expanded map options
+// ==== Base Layers Configuration ==== //
+// 底图配置（支持 OSM、卫星图、CartoDB、高德、腾讯、天地图等）
+// 注意：高德/腾讯使用 GCJ-02 坐标系，与 WGS-84 有偏移
 const baseLayers = {
+    // === 国际通用底图 === //
     osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors',
         maxZoom: 19,
@@ -36,16 +47,62 @@ const baseLayers = {
         attribution: '&copy; OpenTopoMap',
         maxZoom: 17,
     }),
-    stamen: L.tileLayer('https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}.png', {
-        attribution: '&copy; Stamen Design',
-        maxZoom: 20,
+
+    // === 中国底图服务（GCJ-02 坐标系）=== //
+    // 高德地图 - 标准地图
+    amap: L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+        subdomains: ['1', '2', '3', '4'],
+        maxZoom: 18,
+        attribution: '© 高德地图'
     }),
-    carto: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; CartoDB',
-        maxZoom: 19,
+    // 高德地图 - 卫星图
+    amapSatellite: L.tileLayer('https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', {
+        subdomains: ['1', '2', '3', '4'],
+        maxZoom: 18,
+        attribution: '© 高德地图'
     }),
+    // 腾讯地图 - 标准地图（使用 TMS 标准，y 轴翻转）
+    tencent: L.tileLayer('https://rt{s}.map.gtimg.com/tile?z={z}&x={x}&y={reverseY}&type=vector&styleid=0', {
+        subdomains: ['0', '1', '2', '3'],
+        maxZoom: 18,
+        attribution: '© 腾讯地图'
+    }),
+    // 天地图 - 矢量底图（WGS-84 坐标系，国产标准）
+    tianditu: L.tileLayer('https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=' + (TIANDITU_TOKEN || 'your_token'), {
+        subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'],
+        maxZoom: 18,
+        attribution: '© 天地图'
+    }),
+    // 天地图 - 影像底图
+    tiandituSatellite: L.tileLayer('https://t{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=' + (TIANDITU_TOKEN || 'your_token'), {
+        subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'],
+        maxZoom: 18,
+        attribution: '© 天地图'
+    })
 };
-baseLayers.osm.addTo(map);
+
+// 当前底图（默认 OSM）
+let currentBaseLayer = baseLayers.osm;
+currentBaseLayer.addTo(map);
+
+// 底图切换函数
+function switchBaseLayer(layerKey) {
+    if (!baseLayers[layerKey]) {
+        console.warn('未知的底图类型:', layerKey);
+        return;
+    }
+    // 移除当前底图
+    if (currentBaseLayer) {
+        map.removeLayer(currentBaseLayer);
+    }
+    // 添加新底图
+    currentBaseLayer = baseLayers[layerKey];
+    currentBaseLayer.addTo(map);
+    // 确保底图在最底层
+    currentBaseLayer.bringToBack();
+    console.log('已切换底图:', layerKey);
+}
+window.switchBaseLayer = switchBaseLayer;
 
 
 // ==== FontAwesome Icon Marker System ==== //
@@ -213,6 +270,124 @@ function getMarkerIcon(properties) {
 const drawnItems = new L.FeatureGroup();
 map.addLayer(drawnItems);
 
+// ==== Marker Clustering Setup ==== //
+// 使用 Leaflet.markercluster 实现标记聚合
+// 当聚合数量 >= 500 时显示 "500+"
+// 默认关闭，用户可通过复选框开启
+let clusterEnabled = false;  // 聚合功能开关（默认关闭）
+
+const markerClusterGroup = L.markerClusterGroup({
+    showCoverageOnHover: false,
+    maxClusterRadius: 60,  // 聚合半径（像素），调小以提高缩放后分离速度
+    spiderfyOnMaxZoom: true,
+    disableClusteringAtZoom: 16,  // 在此缩放级别停止聚合（调低以便更早分离）
+    chunkedLoading: true,  // 分块加载，提升大数据量性能
+    animate: true,
+    animateAddingMarkers: false,  // 禁用添加动画提升性能
+
+    // 自定义聚合图标（实现 500+ 显示逻辑）
+    iconCreateFunction: function (cluster) {
+        const count = cluster.getChildCount();
+        // 500+ 显示逻辑
+        const displayCount = count >= 500 ? '500+' : count.toString();
+
+        // 根据数量确定大小样式
+        let sizeClass = 'cluster-small';
+        let size = 40;
+        if (count >= 100 && count < 500) {
+            sizeClass = 'cluster-medium';
+            size = 50;
+        } else if (count >= 500) {
+            sizeClass = 'cluster-large';
+            size = 60;
+        }
+
+        return L.divIcon({
+            html: `<div class="cluster-icon ${sizeClass}"><span>${displayCount}</span></div>`,
+            className: 'marker-cluster-custom',
+            iconSize: L.point(size, size)
+        });
+    }
+});
+// 默认不添加到地图（关闭状态）
+// map.addLayer(markerClusterGroup);
+
+// 全局暴露聚合组，供其他模块使用
+window.markerClusterGroup = markerClusterGroup;
+
+// ==== 聚合模式切换函数 ==== //
+function toggleClusterMode(enabled) {
+    clusterEnabled = enabled;
+
+    if (enabled) {
+        // 开启聚合：将现有标记从 drawnItems 移动到 cluster
+        drawnItems.eachLayer(layer => {
+            if (layer instanceof L.Marker) {
+                markerClusterGroup.addLayer(layer);
+            }
+        });
+        // 移除 drawnItems 中的标记（非标记保留）
+        drawnItems.eachLayer(layer => {
+            if (layer instanceof L.Marker) {
+                drawnItems.removeLayer(layer);
+            }
+        });
+        map.addLayer(markerClusterGroup);
+        showBriefMessage('✅ 点聚合已开启');
+    } else {
+        // 关闭聚合：将标记从 cluster 移回 drawnItems
+        markerClusterGroup.eachLayer(layer => {
+            if (layer instanceof L.Marker) {
+                drawnItems.addLayer(layer);
+            }
+        });
+        markerClusterGroup.clearLayers();
+        map.removeLayer(markerClusterGroup);
+        showBriefMessage('ℹ️ 点聚合已关闭');
+    }
+
+    updateLayerList();
+    console.log('Cluster mode:', enabled ? 'ON' : 'OFF');
+}
+window.toggleClusterMode = toggleClusterMode;
+
+// ==== 清空所有图层函数 ==== //
+function clearAllLayersWithConfirm() {
+    const layerCount = drawnItems.getLayers().length + markerClusterGroup.getLayers().length;
+    if (layerCount === 0) {
+        showBriefMessage('ℹ️ 当前没有图层可清空');
+        return;
+    }
+
+    if (confirm(`确定要清空所有 ${layerCount} 个图层吗？此操作不可撤销。`)) {
+        clearAllLayers();
+    }
+}
+window.clearAllLayersWithConfirm = clearAllLayersWithConfirm;
+
+function clearAllLayers() {
+    // 清空聚合层
+    markerClusterGroup.clearLayers();
+
+    // 清空 drawnItems
+    drawnItems.clearLayers();
+
+    // 清空 MarkerGroupManager
+    if (markerGroupManager) {
+        markerGroupManager.clear();
+    }
+
+    // 更新 UI
+    updateLayerList();
+    if (typeof updateFeatureTable === 'function') {
+        updateFeatureTable();
+    }
+
+    showBriefMessage('🗑️ 已清空所有图层');
+    console.log('All layers cleared');
+}
+window.clearAllLayers = clearAllLayers;
+
 // ==== Initialize Marker Group Manager ==== //
 let markerGroupManager = null;
 // 延迟初始化，确保所有依赖加载完成
@@ -220,6 +395,16 @@ setTimeout(() => {
     if (typeof MarkerGroupManager !== 'undefined') {
         markerGroupManager = new MarkerGroupManager(map, drawnItems);
         console.log('MarkerGroupManager initialized');
+    }
+}, 100);
+
+// ==== Initialize Timeline Manager ==== //
+let timelineManager = null;
+setTimeout(() => {
+    if (typeof TimelineManager !== 'undefined') {
+        timelineManager = new TimelineManager();
+        window.timelineManager = timelineManager; // Explicit global export
+        console.log('TimelineManager initialized');
     }
 }, 100);
 
@@ -310,7 +495,9 @@ const excelFileInput = document.getElementById('excelFile');
 const exportExcelBtn = document.getElementById('exportExcelBtn');
 
 // Event Tracker UI elements
-
+const eventTrackerPanel = document.getElementById('eventTrackerPanel');
+const closeEventTrackerBtn = document.getElementById('closeEventTrackerBtn');
+const eventTrackerFeatureName = document.getElementById('eventTrackerFeatureName');
 const newTodoInput = document.getElementById('newTodoInput');
 const addTodoBtn = document.getElementById('addTodoBtn');
 const todoList = document.getElementById('todoList');
@@ -676,11 +863,10 @@ function importGeoJSON(raw) {
                     bindMarkerPopup(layer);
                     bindMarkerContextMenu(layer);
 
-                    // Register with MarkerGroupManager for grouping
-                    if (markerGroupManager) {
-                        markerGroupManager.addMarker(layer);
+                    // 根据聚合开关决定添加位置
+                    if (clusterEnabled && typeof markerClusterGroup !== 'undefined') {
+                        markerClusterGroup.addLayer(layer);
                     } else {
-                        // Fallback if manager not ready
                         drawnItems.addLayer(layer);
                     }
                 } else {
@@ -750,6 +936,9 @@ function bindMarkerPopup(layer) {
 function bindMarkerContextMenu(marker) {
     // 右键：显示上下文菜单并设置为选中标记
     marker.on('contextmenu', e => {
+        L.DomEvent.stopPropagation(e);
+        L.DomEvent.preventDefault(e); // 阻止原生地图右键
+
         contextMenuTarget = marker;
         selectedMarker = marker;  // 设置为选中标记
 
@@ -785,7 +974,12 @@ function bindMarkerContextMenu(marker) {
         }
     });
 
-
+    // 双击：打开事件追踪器
+    marker.on('dblclick', e => {
+        L.DomEvent.stopPropagation(e);
+        selectedMarker = marker;
+        openEventTracker(marker);
+    });
 }
 
 // 全局变量：当前选中的标记
@@ -965,9 +1159,20 @@ function deleteSelectedMarker() {
     hideContextMenu();
 }
 
+function openEventTrackerFromMenu(e) {
+    if (e) L.DomEvent.stopPropagation(e);
+    if (!contextMenuTarget) return;
+    openEventTracker(contextMenuTarget);
+    hideContextMenu();
+}
 
-
-
+// Open event tracker for a specific layer by ID (used in popup)
+function openEventTrackerForLayerId(leafletId) {
+    const layer = drawnItems.getLayer(leafletId);
+    if (!layer) return;
+    map.closePopup();
+    openEventTracker(layer);
+}
 
 map.on('click', () => hideContextMenu());
 
@@ -1939,8 +2144,386 @@ window.deleteLayer = function (id) {
 window.editMarkerProperties = editMarkerProperties;
 window.changeMarkerIcon = changeMarkerIcon;
 window.deleteSelectedMarker = deleteSelectedMarker;
+window.openEventTrackerFromMenu = openEventTrackerFromMenu;
+
+// ==== Global Event Tracker Functions (for onclick) ==== //
+window.closeEventTracker = function () {
+    console.log('closeEventTracker called');
+    if (currentTrackedFeature && currentTrackedFeature._eventId) {
+        const eventData = currentTrackedFeature._currentEventData || initEventData();
+        eventData.notes = eventNotes.value;
+        setEventData(currentTrackedFeature._eventId, eventData);
+        console.log('Event data auto-saved on close');
+    }
+    eventTrackerPanel.style.display = 'none';
+    currentTrackedFeature = null;
+    alert('面板已关闭');
+};
+
+window.saveEventData = function () {
+    console.log('saveEventData called');
+    if (!currentTrackedFeature) {
+        alert('没有选中的图层');
+        return;
+    }
+    const eventData = currentTrackedFeature._currentEventData || initEventData();
+    eventData.notes = eventNotes.value;
+    setEventData(currentTrackedFeature._eventId, eventData);
+    alert('✅ 事件数据已保存！');
+};
 
 
+// ==== Event Tracker System (Multi-Event Support) ==== //
+
+// Get all events for a marker (from feature properties)
+function getMarkerEvents(feature) {
+    if (!feature) return [];
+    // Ensure feature structure exists
+    if (!feature.feature) {
+        feature.feature = { type: 'Feature', properties: {}, geometry: null };
+    }
+    if (!feature.feature.properties) {
+        feature.feature.properties = {};
+    }
+    return feature.feature.properties.events || [];
+}
+
+// Save all events for a marker (to feature properties)
+function saveMarkerEvents(feature, events) {
+    if (!feature) return;
+    // Ensure feature structure exists
+    if (!feature.feature) {
+        feature.feature = { type: 'Feature', properties: {}, geometry: null };
+    }
+    if (!feature.feature.properties) {
+        feature.feature.properties = {};
+    }
+    feature.feature.properties.events = events;
+
+    // Update GeoJSON editor to reflect changes
+    updateGeoJSONEditor();
+    console.log('Events saved to feature:', events.length);
+}
+
+// Open event tracker for a feature - shows event list
+function openEventTracker(feature) {
+    currentTrackedFeature = feature;
+    currentEditingEventId = null;
+
+    // Load data into UI
+    const props = feature.feature?.properties || {};
+    const featureName = props.名称 || props.name || feature.options?.name || '未命名特征';
+    eventTrackerFeatureName.textContent = `📍 ${featureName}`;
+
+    // Show list view, hide edit view
+    showEventList();
+
+    // Show panel
+    eventTrackerPanel.style.display = 'flex';
+    console.log('Event tracker opened');
+}
+
+
+// Show event list view
+function showEventList() {
+    document.getElementById('eventListView').style.display = 'flex';
+    document.getElementById('eventEditView').style.display = 'none';
+
+    renderEventList();
+}
+
+// Render the event list
+function renderEventList() {
+    const container = document.getElementById('eventListContainer');
+    if (!currentTrackedFeature) return;
+
+    const events = getMarkerEvents(currentTrackedFeature);
+
+    if (events.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <p>📋 暂无事件</p>
+                <p>点击下方按钮添加第一个事件</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Sort by date (newest first)
+    const sortedEvents = [...events].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    container.innerHTML = sortedEvents.map(event => `
+        <div class="event-card" onclick="editEvent('${event.id}')">
+            <div class="event-card-info">
+                <div class="event-card-date">${formatEventDate(event.createdAt)}</div>
+                <div class="event-card-name">${event.name || '未命名事件'}</div>
+            </div>
+            <div class="event-card-actions">
+                <button class="btn-edit" onclick="event.stopPropagation(); editEvent('${event.id}')">编辑</button>
+                <button class="btn-delete" onclick="event.stopPropagation(); deleteEvent('${event.id}')">删除</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Format event date for display
+function formatEventDate(dateString) {
+    if (!dateString) return '未知日期';
+    const d = new Date(dateString);
+    return d.toLocaleDateString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    }).replace(/\//g, '-');
+}
+
+// Create new event
+function createNewEvent() {
+    if (!currentTrackedFeature) return;
+
+    const newEvent = {
+        id: generateEventId(),
+        name: '',
+        createdAt: new Date().toISOString(),
+        todos: [],
+        notes: '',
+        urls: [],
+        timeline: []
+    };
+
+    // Add to events list
+    const events = getMarkerEvents(currentTrackedFeature);
+    events.push(newEvent);
+    saveMarkerEvents(currentTrackedFeature, events);
+
+    // Open edit view
+    editEvent(newEvent.id);
+
+}
+
+// Edit an event
+function editEvent(eventId) {
+    if (!currentTrackedFeature) return;
+
+    currentEditingEventId = eventId;
+    const events = getMarkerEvents(currentTrackedFeature);
+    const event = events.find(e => e.id === eventId);
+
+    if (!event) {
+        alert('事件未找到');
+        return;
+    }
+
+    // Store current event data
+    currentTrackedFeature._currentEventData = event;
+
+    // Switch to edit view
+    document.getElementById('eventListView').style.display = 'none';
+    document.getElementById('eventEditView').style.display = 'flex';
+
+    // Load event data into form
+    document.getElementById('currentEventName').value = event.name || '';
+    eventNotes.value = event.notes || '';
+    renderTodoList(event.todos || []);
+    renderUrlList(event.urls || []);
+    renderTimeline(event.timeline || []);
+    renderAttachmentList(event.attachments || []);
+}
+
+
+// Delete an event
+function deleteEvent(eventId) {
+    if (!currentTrackedFeature) return;
+
+    if (!confirm('确定删除此事件？')) return;
+
+    const events = getMarkerEvents(currentTrackedFeature);
+    const index = events.findIndex(e => e.id === eventId);
+
+    if (index !== -1) {
+        events.splice(index, 1);
+        saveMarkerEvents(currentTrackedFeature, events);
+        renderEventList();
+    }
+
+}
+
+// Save current event
+function saveCurrentEvent() {
+    if (!currentTrackedFeature || !currentEditingEventId) {
+        console.log('没有正在编辑的事件');
+        return;
+    }
+
+    const events = getMarkerEvents(currentTrackedFeature);
+    const eventIndex = events.findIndex(e => e.id === currentEditingEventId);
+
+    if (eventIndex === -1) {
+        console.log('事件未找到');
+        return;
+    }
+
+    // Update event data
+    events[eventIndex].name = document.getElementById('currentEventName').value || '未命名事件';
+    events[eventIndex].notes = eventNotes.value;
+    events[eventIndex].todos = currentTrackedFeature._currentEventData?.todos || [];
+    events[eventIndex].urls = currentTrackedFeature._currentEventData?.urls || [];
+    events[eventIndex].timeline = currentTrackedFeature._currentEventData?.timeline || [];
+    events[eventIndex].attachments = currentTrackedFeature._currentEventData?.attachments || [];
+
+    saveMarkerEvents(currentTrackedFeature, events);
+
+
+    // Visual feedback without blocking alert
+
+    const btn = document.getElementById('saveEventDataBtn');
+    if (btn) {
+        const originalText = btn.textContent;
+        btn.textContent = '✅ 已保存';
+        btn.style.background = '#2ecc71';
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.style.background = '';
+        }, 1500);
+    }
+    console.log('事件已保存');
+}
+
+
+// Make functions globally accessible
+window.createNewEvent = createNewEvent;
+window.editEvent = editEvent;
+window.deleteEvent = deleteEvent;
+window.showEventList = showEventList;
+window.saveCurrentEvent = saveCurrentEvent;
+
+// Wrapper functions for onclick buttons
+window.addTodoItemClick = function () { addTodoItem(); };
+window.addUrlItemClick = function () { addUrlItem(); };
+window.addTimelineEventClick = function () { addTimelineEvent(); };
+
+// ==== Event Archive System ==== //
+
+// Save events to a slot (includes marker info)
+function saveEventSlot() {
+    const slotSelect = document.getElementById('eventSlotSelect');
+    if (!slotSelect) return;
+
+    const slotKey = slotSelect.value;
+    const eventArchive = [];
+
+    // Iterate through all markers and collect events
+    drawnItems.eachLayer(layer => {
+        const events = getMarkerEvents(layer);
+        if (events && events.length > 0) {
+            // Get layer position
+            let coords = null;
+            if (layer.getLatLng) {
+                const ll = layer.getLatLng();
+                coords = { lat: ll.lat, lng: ll.lng };
+            } else if (layer.getBounds) {
+                const center = layer.getBounds().getCenter();
+                coords = { lat: center.lat, lng: center.lng };
+            }
+
+            // Get layer name
+            const name = layer.options?.name || layer.feature?.properties?.name || '未命名';
+
+            eventArchive.push({
+                name: name,
+                coords: coords,
+                events: events
+            });
+        }
+    });
+
+    if (eventArchive.length === 0) {
+        console.log('没有事件需要保存');
+        return;
+    }
+
+    localStorage.setItem(slotKey, JSON.stringify(eventArchive));
+
+    // Visual feedback
+    const btn = document.getElementById('saveEventSlotBtn');
+    if (btn) {
+        const originalText = btn.textContent;
+        btn.textContent = '✅ 已保存';
+        setTimeout(() => { btn.textContent = originalText; }, 1500);
+    }
+    console.log(`事件存档已保存到 ${slotKey}:`, eventArchive.length, '个标记');
+}
+
+// Load events from a slot
+function loadEventSlot() {
+    const slotSelect = document.getElementById('eventSlotSelect');
+    if (!slotSelect) return;
+
+    const slotKey = slotSelect.value;
+    const data = localStorage.getItem(slotKey);
+
+    if (!data) {
+        console.log('该存档槽为空');
+        return;
+    }
+
+    const eventArchive = JSON.parse(data);
+    let matchCount = 0;
+
+    eventArchive.forEach(archive => {
+        // Try to find matching layer by name + coords
+        let matchedLayer = null;
+
+        drawnItems.eachLayer(layer => {
+            if (matchedLayer) return;
+
+            const layerName = layer.options?.name || layer.feature?.properties?.name || '未命名';
+
+            // Match by name first
+            if (layerName === archive.name) {
+                // Verify by coordinates proximity
+                let layerCoords = null;
+                if (layer.getLatLng) {
+                    const ll = layer.getLatLng();
+                    layerCoords = { lat: ll.lat, lng: ll.lng };
+                } else if (layer.getBounds) {
+                    const center = layer.getBounds().getCenter();
+                    layerCoords = { lat: center.lat, lng: center.lng };
+                }
+
+                if (layerCoords && archive.coords) {
+                    const dist = Math.sqrt(
+                        Math.pow(layerCoords.lat - archive.coords.lat, 2) +
+                        Math.pow(layerCoords.lng - archive.coords.lng, 2)
+                    );
+                    if (dist < 0.001) { // ~100m tolerance
+                        matchedLayer = layer;
+                    }
+                }
+            }
+        });
+
+        if (matchedLayer) {
+            // Restore events to matched layer
+            saveMarkerEvents(matchedLayer, archive.events);
+            matchCount++;
+        }
+    });
+
+    // Visual feedback
+    const btn = document.getElementById('loadEventSlotBtn');
+    if (btn) {
+        const originalText = btn.textContent;
+        btn.textContent = `✅ 已加载 ${mathCount}`;
+        setTimeout(() => { btn.textContent = originalText; }, 1500);
+    }
+    console.log(`从 ${slotKey} 加载事件:`, matchCount, '/', eventArchive.length, '匹配');
+}
+
+window.saveEventSlot = saveEventSlot;
+window.loadEventSlot = loadEventSlot;
 
 // ==== Complete Archive System (Simplified) ==== //
 
@@ -2414,6 +2997,354 @@ window.deleteCodeArchive = deleteCodeArchive;
 window.saveCurrentCodeArchive = saveCurrentCodeArchive;
 
 
+// Close event tracker
+if (closeEventTrackerBtn) {
+    closeEventTrackerBtn.addEventListener('click', () => {
+        // Auto-save before closing
+        if (currentTrackedFeature && currentTrackedFeature._eventId) {
+            const eventData = currentTrackedFeature._currentEventData || initEventData();
+            eventData.notes = eventNotes.value;
+            setEventData(currentTrackedFeature._eventId, eventData);
+            console.log('Event data auto-saved on close');
+        }
+        eventTrackerPanel.style.display = 'none';
+        currentTrackedFeature = null;
+    });
+} else {
+    console.error('closeEventTrackerBtn not found!');
+}
+
+// Todo List Functions
+function renderTodoList(todos) {
+    todoList.innerHTML = '';
+    todos.forEach((todo, index) => {
+        const todoItem = document.createElement('div');
+        todoItem.className = 'todo-item';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = todo.completed;
+        checkbox.addEventListener('change', () => toggleTodoItem(index));
+
+        const text = document.createElement('span');
+        text.className = `todo-item-text${todo.completed ? ' completed' : ''}`;
+        text.textContent = todo.text;
+
+        const time = document.createElement('span');
+        time.className = 'todo-item-time';
+        const date = new Date(todo.created);
+        time.textContent = `${date.getMonth() + 1}/${date.getDate()}`;
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'todo-item-delete';
+        deleteBtn.textContent = '删除';
+        deleteBtn.addEventListener('click', () => deleteTodoItem(index));
+
+        todoItem.appendChild(checkbox);
+        todoItem.appendChild(text);
+        todoItem.appendChild(time);
+        todoItem.appendChild(deleteBtn);
+        todoList.appendChild(todoItem);
+    });
+}
+
+function addTodoItem() {
+    if (!currentTrackedFeature) return;
+    const text = newTodoInput.value.trim();
+    if (!text) return;
+
+    const eventData = currentTrackedFeature._currentEventData;
+    if (!eventData.todos) eventData.todos = [];
+
+    eventData.todos.push({
+        id: Date.now(),
+        text: text,
+        completed: false,
+        created: Date.now()
+    });
+
+    // Save to localStorage immediately
+    setEventData(currentTrackedFeature._eventId, eventData);
+    renderTodoList(eventData.todos);
+    newTodoInput.value = '';
+}
+
+function toggleTodoItem(index) {
+    if (!currentTrackedFeature) return;
+    const eventData = currentTrackedFeature._currentEventData;
+    eventData.todos[index].completed = !eventData.todos[index].completed;
+    setEventData(currentTrackedFeature._eventId, eventData);
+    renderTodoList(eventData.todos);
+}
+
+function deleteTodoItem(index) {
+    if (!currentTrackedFeature) return;
+    const eventData = currentTrackedFeature._currentEventData;
+    eventData.todos.splice(index, 1);
+    setEventData(currentTrackedFeature._eventId, eventData);
+    renderTodoList(eventData.todos);
+}
+
+
+
+if (addTodoBtn) {
+    addTodoBtn.addEventListener('click', addTodoItem);
+} else {
+    console.error('addTodoBtn not found!');
+}
+
+if (newTodoInput) {
+    newTodoInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') addTodoItem();
+    });
+}
+
+
+// URL Functions
+function renderUrlList(urls) {
+    urlList.innerHTML = '';
+    urls.forEach((urlItem, index) => {
+        const item = document.createElement('div');
+        item.className = 'url-item';
+
+        const link = document.createElement('a');
+        link.href = urlItem.url;
+        link.target = '_blank';
+        link.textContent = urlItem.title || urlItem.url;
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'url-item-delete';
+        deleteBtn.textContent = '删除';
+        deleteBtn.addEventListener('click'
+
+            , () => deleteUrlItem(index));
+
+        item.appendChild(link);
+        item.appendChild(deleteBtn);
+        urlList.appendChild(item);
+    });
+}
+
+function addUrlItem() {
+    if (!currentTrackedFeature) return;
+    const title = urlTitle.value.trim();
+    const url = urlAddress.value.trim();
+
+    if (!url) {
+        return;
+    }
+
+
+    const eventData = currentTrackedFeature._currentEventData;
+    if (!eventData.urls) eventData.urls = [];
+
+    eventData.urls.push({
+        title: title || url,
+        url: url,
+        added: Date.now()
+    });
+
+    setEventData(currentTrackedFeature._eventId, eventData);
+    renderUrlList(eventData.urls);
+    urlTitle.value = '';
+    urlAddress.value = '';
+}
+
+function deleteUrlItem(index) {
+    if (!currentTrackedFeature) return;
+    const eventData = currentTrackedFeature._currentEventData;
+    eventData.urls.splice(index, 1);
+    setEventData(currentTrackedFeature._eventId, eventData);
+    renderUrlList(eventData.urls);
+}
+
+
+
+if (addUrlBtn) {
+    addUrlBtn.addEventListener('click', addUrlItem);
+} else {
+    console.error('addUrlBtn not found!');
+}
+
+
+// Timeline Functions
+function renderTimeline(events) {
+    timelineDisplay.innerHTML = '';
+
+    // Sort events by date (newest first)
+    const sortedEvents = [...events].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    sortedEvents.forEach((event, index) => {
+        const eventEl = document.createElement('div');
+        eventEl.className = 'timeline-event';
+
+        const date = document.createElement('div');
+        date.className = 'timeline-event-date';
+        const d = new Date(event.date);
+        const dateStr = d.toLocaleDateString('zh-CN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+        date.textContent = dateStr.replace(/\//g, '-');
+
+        const title = document.createElement('div');
+        title.className = 'timeline-event-title';
+        title.textContent = event.title;
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'timeline-event-delete';
+        deleteBtn.textContent = '删除';
+        deleteBtn.addEventListener('click', () => deleteTimelineEvent(events.findIndex(e => e.id === event.id)));
+
+        eventEl.appendChild(date);
+        eventEl.appendChild(title);
+        if (event.description) {
+            const desc = document.createElement('div');
+            desc.className = 'timeline-event-description';
+            desc.textContent = event.description;
+            eventEl.appendChild(desc);
+        }
+        eventEl.appendChild(deleteBtn);
+
+        timelineDisplay.appendChild(eventEl);
+    });
+}
+
+function addTimelineEvent() {
+    if (!currentTrackedFeature) return;
+    const date = timelineDate.value;
+    const title = timelineTitle.value.trim();
+
+    if (!date || !title) {
+        return;
+    }
+
+
+    const eventData = currentTrackedFeature._currentEventData;
+    if (!eventData.timeline) eventData.timeline = [];
+
+    eventData.timeline.push({
+        id: Date.now(),
+        date: date,
+        title: title,
+        description: '',
+        type: 'event'
+    });
+
+    setEventData(currentTrackedFeature._eventId, eventData);
+    renderTimeline(eventData.timeline);
+    timelineDate.value = '';
+    timelineTitle.value = '';
+}
+
+function deleteTimelineEvent(index) {
+    if (!currentTrackedFeature) return;
+    const eventData = currentTrackedFeature._currentEventData;
+    eventData.timeline.splice(index, 1);
+    setEventData(currentTrackedFeature._eventId, eventData);
+    renderTimeline(eventData.timeline);
+}
+
+
+if (addTimelineBtn) {
+    addTimelineBtn.addEventListener('click', addTimelineEvent);
+} else {
+    console.error('addTimelineBtn not found!');
+}
+
+
+// Save event data button
+if (saveEventDataBtn) {
+    saveEventDataBtn.addEventListener('click', () => {
+        if (!currentTrackedFeature) {
+            alert('没有选中的图层');
+            return;
+        }
+
+        const eventData = currentTrackedFeature._currentEventData;
+        eventData.notes = eventNotes.value;
+        setEventData(currentTrackedFeature._eventId, eventData);
+
+        alert('✅ 事件数据已保存到本地存储！\n\n数据与图层分开存储，刷新页面后重新打开事件追踪器即可查看。');
+    });
+} else {
+    console.error('saveEventDataBtn not found!');
+}
+
+
+// Add click handler to features to open event tracker
+map.on('click', (e) => {
+    // Check if click is on a layer
+    let clickedLayer = null;
+    drawnItems.eachLayer(layer => {
+        if (layer instanceof L.Marker) {
+            const latlng = layer.getLatLng();
+            const distance = map.distance(e.latlng, latlng);
+            if (distance < 50) { // 50 meters threshold
+                clickedLayer = layer;
+            }
+        } else if (layer instanceof L.Polygon || layer instanceof L.Polyline || layer instanceof L.Circle) {
+            // Check if click is inside polygon/circle
+            try {
+                if (layer.getBounds && layer.getBounds().contains(e.latlng)) {
+                    clickedLayer = layer;
+                }
+            } catch (err) {
+                // Ignore bounds errors
+            }
+        }
+    });
+
+    // If shift key is pressed and a layer is clicked, open event tracker
+    if (e.originalEvent.shiftKey && clickedLayer) {
+        e.originalEvent.preventDefault();
+        openEventTracker(clickedLayer);
+    }
+});
+
+// ==== Debug: Verify Event Tracker Elements ==== //
+console.log('=== Event Tracker Elements Debug ===');
+console.log('eventTrackerPanel:', eventTrackerPanel ? 'FOUND' : 'NOT FOUND');
+console.log('closeEventTrackerBtn:', closeEventTrackerBtn ? 'FOUND' : 'NOT FOUND');
+console.log('saveEventDataBtn:', saveEventDataBtn ? 'FOUND' : 'NOT FOUND');
+console.log('addTodoBtn:', addTodoBtn ? 'FOUND' : 'NOT FOUND');
+console.log('addUrlBtn:', addUrlBtn ? 'FOUND' : 'NOT FOUND');
+console.log('addTimelineBtn:', addTimelineBtn ? 'FOUND' : 'NOT FOUND');
+console.log('===================================');
+
+// ==== CRITICAL: Define Global Functions at End of Script ==== //
+function closeEventTracker() {
+    console.log('closeEventTracker() called!');
+    try {
+        // Auto-save current event if editing
+        if (currentTrackedFeature && currentEditingEventId) {
+            const events = getMarkerEvents(currentTrackedFeature);
+            const eventIndex = events.findIndex(e => e.id === currentEditingEventId);
+            if (eventIndex !== -1 && currentTrackedFeature._currentEventData) {
+                events[eventIndex].name = document.getElementById('currentEventName')?.value || '未命名事件';
+                events[eventIndex].notes = eventNotes?.value || '';
+                events[eventIndex].todos = currentTrackedFeature._currentEventData.todos || [];
+                events[eventIndex].urls = currentTrackedFeature._currentEventData.urls || [];
+                events[eventIndex].timeline = currentTrackedFeature._currentEventData.timeline || [];
+                saveMarkerEvents(currentTrackedFeature, events);
+            }
+        }
+        document.getElementById('eventTrackerPanel').style.display = 'none';
+        currentTrackedFeature = null;
+        currentEditingEventId = null;
+    } catch (e) {
+        console.error('Error closing:', e);
+    }
+}
+
+// Make sure functions are globally accessible
+window.closeEventTracker = closeEventTracker;
+
+console.log('Global functions defined:', typeof closeEventTracker, typeof saveCurrentEvent);
+
 // ==== Initialize SelectionManager Listener for Layer Panel ==== //
 setTimeout(() => {
     if (typeof selectionManager !== 'undefined') {
@@ -2442,6 +3373,11 @@ function toggleAccordion(sectionId) {
     if (section) {
         section.classList.toggle('collapsed');
     }
+
+    // 如果切换离开历史 Accordion 且在浏览模式，自动退出
+    if (sectionId !== 'history' && typeof exitHistoryBrowseModeSafe === 'function') {
+        exitHistoryBrowseModeSafe();
+    }
 }
 
 function expandAccordion(sectionId) {
@@ -2450,6 +3386,13 @@ function expandAccordion(sectionId) {
     // 先展开面板
     if (controls && controls.classList.contains('collapsed')) {
         controls.classList.remove('collapsed');
+        // 同步 body 类
+        document.body.classList.remove('ui-collapsed');
+    }
+
+    // 如果展开的不是历史 Accordion，且当前在浏览模式，先退出
+    if (sectionId !== 'history' && typeof exitHistoryBrowseModeSafe === 'function') {
+        exitHistoryBrowseModeSafe();
     }
 
     // 展开对应 accordion
