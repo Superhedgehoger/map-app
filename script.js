@@ -776,12 +776,8 @@ function updateLayerList() {
         if (typeof selectionManager !== 'undefined' && selectionManager.isSelected(layer)) {
             item.classList.add('selected');
         }
-
-        // 关键修复: 必须移除 layer-hidden 类当图层可见时
         if (layer._hidden) {
             item.classList.add('layer-hidden');
-        } else {
-            item.classList.remove('layer-hidden');
         }
 
         // Determine type/icon
@@ -911,14 +907,8 @@ function updateLayerList() {
         content.className = 'layer-group-content';
         uncategorizedLayers.forEach(l => renderLayerItem(l, content, itemIndex++));
         layerList.appendChild(content);
-    } else if (!showHeaderForUncategorized && uncategorizedLayers.length > 0) {
-        // Flat list (no groups created yet) - add hint
-        if (uncategorizedLayers.length > 3) {
-            const hint = document.createElement('div');
-            hint.style.cssText = 'padding: 8px 12px; background: rgba(74, 144, 226, 0.1); border-left: 3px solid #4a90e2; margin-bottom: 8px; font-size: 0.85rem; color: #aaa;';
-            hint.innerHTML = '💡 提示: 使用左侧「<strong>自定义组</strong>」功能对图层进行分类管理';
-            layerList.appendChild(hint);
-        }
+    } else {
+        // Flat list (no groups created yet)
         uncategorizedLayers.forEach(l => renderLayerItem(l, layerList, itemIndex++));
     }
 
@@ -1163,6 +1153,17 @@ function toggleLayerVisibility(leafletId) {
         }
     }
 
+    // 同步范围圈显隐
+    if (layer._radiusRings) {
+        layer._radiusRings.forEach(circle => {
+            if (layer._hidden) {
+                if (map.hasLayer(circle)) map.removeLayer(circle);
+            } else {
+                if (!map.hasLayer(circle)) map.addLayer(circle);
+            }
+        });
+    }
+
     updateLayerList();
 }
 window.toggleLayerVisibility = toggleLayerVisibility;
@@ -1176,6 +1177,11 @@ function deleteLayer(leafletId) {
     }
 
     const { layer, container, type, group } = result;
+
+    // 清除范围圈
+    if (typeof clearRadiusRings === 'function') {
+        clearRadiusRings(layer);
+    }
 
     // Remove from everywhere
     if (map.hasLayer(layer)) map.removeLayer(layer);
@@ -1756,7 +1762,19 @@ function bindShapeEventHandlers(layer) {
 }
 window.bindShapeEventHandlers = bindShapeEventHandlers;
 
-map.on(L.Draw.Event.EDITED, () => updateLayerList());
+map.on(L.Draw.Event.EDITED, (e) => {
+    // 更新被编辑标记的范围圈位置
+    if (e.layers) {
+        e.layers.eachLayer(layer => {
+            if (layer instanceof L.Marker && layer._radiusRings) {
+                if (typeof updateRadiusRingsOnMap === 'function') {
+                    updateRadiusRingsOnMap(layer);
+                }
+            }
+        });
+    }
+    updateLayerList();
+});
 map.on(L.Draw.Event.DELETED, () => updateLayerList());
 
 exportGeoJSONBtn.addEventListener('click', exportGeoJSON);
