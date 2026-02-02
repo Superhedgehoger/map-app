@@ -2204,72 +2204,80 @@ if (toggleToolbarBtn && controlsPanel) {
 }
 
 
-applyEditorBtn.addEventListener('click', () => {
-    drawnItems.clearLayers();
-    importGeoJSON(geojsonEditor.value);
-});
-
-clearAllBtn.addEventListener('click', () => {
-    // 检查是否有数据可清空
-    let hasData = false;
-    if (typeof drawnItems !== 'undefined') {
-        drawnItems.eachLayer(() => { hasData = true; });
-    }
-    if (typeof markerGroupManager !== 'undefined' && markerGroupManager && markerGroupManager.groups.size > 0) {
-        hasData = true;
-    }
-
-    if (!hasData) {
-        alert('当前没有可清空的数据');
-        return;
-    }
-
-    if (confirm('⚠️ 确定要清空所有图层吗？\n\n此操作将删除所有标记，无法撤销！')) {
-        // 清空 MarkerGroupManager
-        if (typeof markerGroupManager !== 'undefined' && markerGroupManager) {
-            markerGroupManager.clear();
-        }
-
-        // 清空 drawnItems
+if (applyEditorBtn) {
+    applyEditorBtn.addEventListener('click', () => {
         drawnItems.clearLayers();
+        importGeoJSON(geojsonEditor.value);
+    });
+}
 
-        // 清空自定义组
-        if (typeof customGroupManager !== 'undefined' && customGroupManager) {
-            customGroupManager.groups.clear();
-            customGroupManager.markerToGroups.clear();
-            customGroupManager._renderGroupList();
+if (clearAllBtn) {
+    clearAllBtn.addEventListener('click', () => {
+        // 检查是否有数据可清空
+        let hasData = false;
+        if (typeof drawnItems !== 'undefined') {
+            drawnItems.eachLayer(() => { hasData = true; });
+        }
+        if (typeof markerGroupManager !== 'undefined' && markerGroupManager && markerGroupManager.groups.size > 0) {
+            hasData = true;
         }
 
-        // 刷新所有视图
-        updateLayerList();
-
-        if (typeof updateFeatureTable === 'function') {
-            updateFeatureTable();
-        }
-        if (typeof updateDashboard === 'function') {
-            updateDashboard();
-        }
-        if (typeof updateLayerStats === 'function') {
-            updateLayerStats();
+        if (!hasData) {
+            alert('当前没有可清空的数据');
+            return;
         }
 
-        // 更新图层详情面板
-        updateLayerDetailsPanel(null);
+        if (confirm('⚠️ 确定要清空所有图层吗？\n\n此操作将删除所有标记，无法撤销！')) {
+            // 清空 MarkerGroupManager
+            if (typeof markerGroupManager !== 'undefined' && markerGroupManager) {
+                markerGroupManager.clear();
+            }
 
-        if (typeof showBriefMessage === 'function') {
-            showBriefMessage('✅ 已清空所有图层');
+            // 清空 drawnItems
+            drawnItems.clearLayers();
+
+            // 清空自定义组
+            if (typeof customGroupManager !== 'undefined' && customGroupManager) {
+                customGroupManager.groups.clear();
+                customGroupManager.markerToGroups.clear();
+                customGroupManager._renderGroupList();
+            }
+
+            // 刷新所有视图
+            updateLayerList();
+
+            if (typeof updateFeatureTable === 'function') {
+                updateFeatureTable();
+            }
+            if (typeof updateDashboard === 'function') {
+                updateDashboard();
+            }
+            if (typeof updateLayerStats === 'function') {
+                updateLayerStats();
+            }
+
+            // 更新图层详情面板
+            updateLayerDetailsPanel(null);
+
+            if (typeof showBriefMessage === 'function') {
+                showBriefMessage('✅ 已清空所有图层');
+            }
         }
-    }
-});
+    });
+}
 
-showLabelsCheck.addEventListener('change', e => {
-    showLabels = e.target.checked;
-    updateLabels();
-});
+if (showLabelsCheck) {
+    showLabelsCheck.addEventListener('change', e => {
+        showLabels = e.target.checked;
+        updateLabels();
+    });
+}
 
-markerIconSelect.addEventListener('change', e => {
-    currentMarkerColor = e.target.value;
-});
+if (markerIconSelect) {
+    markerIconSelect.addEventListener('change', e => {
+        currentMarkerColor = e.target.value;
+    });
+}
 
 // Save Slot Event Listeners (Legacy - elements may be removed)
 if (saveSlotBtn && saveSlotSelect) {
@@ -2354,110 +2362,111 @@ const INTERNAL_FIELDS = [
 ];
 
 function isInternalField(key) {
-    return key.startsWith('_') || INTERNAL_FIELDS.includes(key);
+    return key.startsWith('_') || key.startsWith('marker-') || INTERNAL_FIELDS.includes(key);
 }
 
-// ==== 导出 CSV（仅坐标）====
-if (exportBtn) {
-    exportBtn.addEventListener('click', () => {
-        const markers = getAllMarkers();
+/**
+ * 构建动态导出表头：
+ * 1. 找到"最丰富"标记（业务属性最多的标记）
+ * 2. 以该标记的字段顺序为基础
+ * 3. 追加其他标记的额外字段
+ * 4. 确保核心列在最前面
+ * @param {Array} markers - 所有标记
+ * @returns {Array} 排序后的表头列表
+ */
+function buildDynamicExportHeaders(markers) {
+    // 核心固定列（始终优先显示）
+    const coreFields = ['图层名称', '名称', '类型', '地址', '经度', '纬度'];
+    // 基础字段映射（用于排除重复）
+    const baseFieldKeys = ['name', 'type', 'address', 'layerName', 'group'];
 
-        if (markers.length === 0) {
-            alert('没有标记可导出');
-            return;
-        }
+    // 找到"最丰富"标记（业务属性最多的那个）
+    let richestMarker = null;
+    let maxBusinessProps = 0;
 
-        const rows = ['latitude,longitude,name,type,address'];
-        markers.forEach(marker => {
-            const ll = marker.getLatLng();
-            const props = marker.feature?.properties || {};
-            const name = (props.name || '').replace(/,/g, '，').replace(/"/g, '""');
-            const type = (props.type || '').replace(/,/g, '，').replace(/"/g, '""');
-            const address = (props.address || '').replace(/,/g, '，').replace(/"/g, '""');
-            rows.push(`${ll.lat},${ll.lng},"${name}","${type}","${address}"`);
+    markers.forEach(marker => {
+        const props = marker.feature?.properties || {};
+        let businessPropCount = 0;
+
+        Object.keys(props).forEach(key => {
+            if (!isInternalField(key) && !baseFieldKeys.includes(key)) {
+                businessPropCount++;
+            }
         });
 
-        const csvContent = rows.join('\n');
-        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'coordinates.csv';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        if (businessPropCount > maxBusinessProps) {
+            maxBusinessProps = businessPropCount;
+            richestMarker = marker;
+        }
     });
-}
 
-// ==== Excel Functions ==== //
-
-// Download Excel Template（完整业务字段）
-if (downloadTemplateBtn) {
-    downloadTemplateBtn.addEventListener('click', () => {
-        const templateData = [
-            {
-                '经度 (Longitude)': 120.38,
-                '纬度 (Latitude)': 36.07,
-                '名称 (Name)': '示例门店',
-                '类型 (Type)': '加油站',
-                '地址 (Address)': '山东省青岛市市南区香港中路',
-                '图层名称 (LayerName)': '青岛片区',
-                '销售等级': 'A',
-                '加油笔数': 150,
-                '钱包会员比例': '35%',
-                '备注': '示例数据'
+    // 从最丰富标记收集字段顺序
+    const baseFields = [];
+    if (richestMarker) {
+        const props = richestMarker.feature?.properties || {};
+        Object.keys(props).forEach(key => {
+            if (!isInternalField(key) && !baseFieldKeys.includes(key)) {
+                baseFields.push(key);
             }
-        ];
+        });
+    }
 
-        const ws = XLSX.utils.json_to_sheet(templateData);
-
-        // 设置列宽
-        ws['!cols'] = [
-            { wch: 18 }, // 经度
-            { wch: 18 }, // 纬度
-            { wch: 20 }, // 名称
-            { wch: 12 }, // 类型
-            { wch: 35 }, // 地址
-            { wch: 15 }, // 图层名称
-            { wch: 10 }, // 销售等级
-            { wch: 12 }, // 加油笔数
-            { wch: 15 }, // 钱包会员比例
-            { wch: 20 }  // 备注
-        ];
-
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, '标记数据');
-        XLSX.writeFile(wb, '地图标记导入模板.xlsx');
+    // 遍历所有标记，追加额外字段
+    const seenFields = new Set(baseFields);
+    markers.forEach(marker => {
+        const props = marker.feature?.properties || {};
+        Object.keys(props).forEach(key => {
+            if (!isInternalField(key) && !baseFieldKeys.includes(key) && !seenFields.has(key)) {
+                baseFields.push(key);
+                seenFields.add(key);
+            }
+        });
     });
+
+    // 构建最终表头：核心列 + 动态业务列
+    const finalHeaders = [...coreFields, ...baseFields];
+
+    // 如果有范围圈数据，添加到最后
+    const hasRadiusRings = markers.some(m => {
+        const props = m.feature?.properties || {};
+        return props.radiusRings && Array.isArray(props.radiusRings) && props.radiusRings.length > 0;
+    });
+    if (hasRadiusRings) {
+        finalHeaders.push('范围圈');
+    }
+
+    return finalHeaders;
 }
 
-// Export to Excel with ALL fields
-if (exportExcelBtn) {
-    exportExcelBtn.addEventListener('click', () => {
+// ==== 导出 CSV（完整字段，与 Excel 一致）====
+console.log('[Debug] exportBtn element:', exportBtn);
+if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+        console.log('[Export CSV] Button clicked!');
         const markers = getAllMarkers();
+        console.log('[Export CSV] Markers found:', markers.length);
 
         if (markers.length === 0) {
             alert('没有标记可导出');
             return;
         }
 
-        // 收集所有唯一的属性键（用于动态列）
-        const allKeys = new Set();
+        // 使用动态表头构建函数（基于最丰富标记）
+        const allHeaders = buildDynamicExportHeaders(markers);
         const data = [];
 
         markers.forEach(marker => {
             const ll = marker.getLatLng();
             const props = marker.feature?.properties || {};
 
-            // 基础字段
+            // 构建行数据
             const row = {
-                '经度 (Longitude)': ll.lng,
-                '纬度 (Latitude)': ll.lat,
-                '名称 (Name)': props.name || '',
-                '类型 (Type)': props.type || '',
-                '地址 (Address)': props.address || '',
-                '图层名称 (LayerName)': props.layerName || props.group || ''
+                '图层名称': props.layerName || props.group || '',
+                '名称': props.name || '',
+                '类型': props.type || '',
+                '地址': props.address || '',
+                '经度': ll.lng,
+                '纬度': ll.lat
             };
 
             // 添加所有业务属性（排除内部字段）
@@ -2465,24 +2474,156 @@ if (exportExcelBtn) {
                 if (!isInternalField(key) &&
                     !['name', 'type', 'address', 'layerName', 'group'].includes(key)) {
                     row[key] = props[key];
-                    allKeys.add(key);
                 }
             });
 
             // 处理 radiusRings
             if (props.radiusRings && Array.isArray(props.radiusRings)) {
-                row['范围圈 (radiusRings)'] = props.radiusRings.join(';');
+                row['范围圈'] = props.radiusRings.join(';');
             }
 
             data.push(row);
         });
 
-        const ws = XLSX.utils.json_to_sheet(data);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, '标记数据');
-        XLSX.writeFile(wb, '地图标记数据.xlsx');
+        // 构建 CSV 内容
+        const escapeCSV = (val) => {
+            if (val === null || val === undefined) return '';
+            const str = String(val);
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        };
 
-        console.log(`成功导出 ${data.length} 个标记`);
+        const rows = [allHeaders.join(',')];
+        data.forEach(row => {
+            const values = allHeaders.map(header => escapeCSV(row[header]));
+            rows.push(values.join(','));
+        });
+
+        const csvContent = rows.join('\n');
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = '地图标记数据.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        console.log(`[Export CSV] 成功导出 ${data.length} 个标记，${allHeaders.length} 列`);
+    });
+}
+
+// ==== Excel Functions ==== //
+
+// Download Excel Template（完整业务字段）
+console.log('[Debug] downloadTemplateBtn element:', downloadTemplateBtn);
+if (downloadTemplateBtn) {
+    downloadTemplateBtn.addEventListener('click', () => {
+        console.log('[Template] Download button clicked!');
+        try {
+            const templateData = [
+                {
+                    '经度': 120.38,
+                    '纬度': 36.07,
+                    '名称': '示例门店',
+                    '类型': '加油站',
+                    '地址': '山东省青岛市市南区香港中路',
+                    '图层名称': '青岛片区',
+                    '销售等级': 'A',
+                    '加油笔数': 150,
+                    '钱包会员比例': '35%',
+                    '备注': '示例数据'
+                }
+            ];
+
+            const ws = XLSX.utils.json_to_sheet(templateData);
+
+            // 设置列宽
+            ws['!cols'] = [
+                { wch: 18 }, // 经度
+                { wch: 18 }, // 纬度
+                { wch: 20 }, // 名称
+                { wch: 12 }, // 类型
+                { wch: 35 }, // 地址
+                { wch: 15 }, // 图层名称
+                { wch: 10 }, // 销售等级
+                { wch: 12 }, // 加油笔数
+                { wch: 15 }, // 钱包会员比例
+                { wch: 20 }  // 备注
+            ];
+
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, '标记数据');
+            XLSX.writeFile(wb, '地图标记导入模板.xlsx');
+            console.log('[Template] File download triggered');
+        } catch (err) {
+            console.error('[Template] Error:', err);
+            alert('模板下载失败: ' + err.message);
+        }
+    });
+}
+
+// Export to Excel with ALL fields
+console.log('[Debug] exportExcelBtn element:', exportExcelBtn);
+if (exportExcelBtn) {
+    exportExcelBtn.addEventListener('click', () => {
+        console.log('[Export Excel] Button clicked!');
+        try {
+            const markers = getAllMarkers();
+
+            if (markers.length === 0) {
+                alert('没有标记可导出');
+                return;
+            }
+
+            // 使用动态表头构建函数（基于最丰富标记）
+            const allHeaders = buildDynamicExportHeaders(markers);
+            const data = [];
+
+            markers.forEach(marker => {
+                const ll = marker.getLatLng();
+                const props = marker.feature?.properties || {};
+
+                // 构建行数据（与表头顺序一致）
+                const row = {
+                    '图层名称': props.layerName || props.group || '',
+                    '名称': props.name || '',
+                    '类型': props.type || '',
+                    '地址': props.address || '',
+                    '经度': ll.lng,
+                    '纬度': ll.lat
+                };
+
+                // 添加所有业务属性（排除内部字段）
+                Object.keys(props).forEach(key => {
+                    if (!isInternalField(key) &&
+                        !['name', 'type', 'address', 'layerName', 'group'].includes(key)) {
+                        row[key] = props[key];
+                    }
+                });
+
+                // 处理 radiusRings
+                if (props.radiusRings && Array.isArray(props.radiusRings)) {
+                    row['范围圈'] = props.radiusRings.join(';');
+                }
+
+                data.push(row);
+            });
+
+            // 使用指定表头顺序创建 Excel
+            const ws = XLSX.utils.json_to_sheet(data, { header: allHeaders });
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, '标记数据');
+            XLSX.writeFile(wb, '地图标记数据.xlsx');
+
+            console.log(`[Export Excel] 成功导出 ${data.length} 个标记，${allHeaders.length} 列`);
+        } catch (err) {
+            console.error('[Export Excel] Error:', err);
+            alert('Excel 导出失败: ' + err.message);
+        }
     });
 }
 
@@ -2731,7 +2872,9 @@ addManualMarkerBtn.addEventListener('click', () => {
 });
 
 // Layer panel toggle
-toggleLayerPanelBtn.addEventListener('click', toggleLayerPanel);
+if (toggleLayerPanelBtn) {
+    toggleLayerPanelBtn.addEventListener('click', toggleLayerPanel);
+}
 
 function toggleLayerPanel() {
     const panel = document.getElementById('layerPanel');

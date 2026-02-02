@@ -241,6 +241,8 @@ body {
 
 #layerPanel.open {
     display: flex;
+    transform: translateX(0) !important;
+    opacity: 1 !important;
 }
 
 /* 图层面板固定头部 */
